@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mundo 0 – Diorama</title>
+    <style>
+      body,html { margin:0; padding:0; height:100%; overflow:hidden; }
+      #app { height:100%; }
+      #overlay {
+        position:absolute;
+        top:0;
+        left:0;
+        padding:10px 14px;
+        color:#fff;
+        font-family:system-ui,sans-serif;
+        background:rgba(0,0,0,0.55);
+        z-index:10;
+        line-height:1.4;
+      }
+      #overlay h1 {
+        font-size:16px;
+        margin:0 0 4px 0;
+      }
+      #overlay p {
+        font-size:12px;
+        margin:0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="overlay">
+      <h1>Mundo 0 – Diorama</h1>
+      <p>Rueda = Zoom, Arrastre = Orbitar, Shift+Arrastre = Pan</p>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
