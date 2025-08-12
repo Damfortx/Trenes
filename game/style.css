@@ -1,0 +1,7 @@
+body,html{margin:0;padding:0;overflow:hidden;font-family:sans-serif;background:#F7F7F0;color:#222}
+#c{display:block}
+#ui{position:absolute;top:0;left:0;width:100%;pointer-events:none}
+#info{position:absolute;top:10px;left:10px;background:rgba(255,255,255,0.7);padding:4px 8px;border-radius:4px;font-weight:bold}
+#palette{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);background:rgba(255,255,255,0.7);padding:4px;border-radius:4px;display:flex;gap:4px}
+#palette button,#info button{pointer-events:auto;border:none;border-radius:4px;padding:8px 12px;background:#ddd}
+#palette button.active{background:#bbb}
