@@ -11,26 +11,34 @@ export function createForest() {
   const trees = ['tree_pineTallA.glb', 'tree_oak.glb', 'tree_cone.glb'];
   const rocks = ['rock_largeA.glb', 'rock_smallC.glb'];
 
-  trees.forEach((t) => scatter(t, 6, true, COLORS.treeTop));
+  trees.forEach((t) => scatter(t, 6, true));
   rocks.forEach((r) => scatter(r, 4, false, COLORS.terrain));
 
-  function scatter(file: string, count: number, cast: boolean, color: number) {
+  function scatter(file: string, count: number, cast: boolean, color?: number) {
     loader.load(`/assets/nature/${file}`, (gltf) => {
-      const meshes: THREE.Mesh[] = [];
-      gltf.scene.traverse((o) => {
-        if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh);
-      });
+      const instances: THREE.InstancedMesh[] = [];
+      gltf.scene.traverse((o: any) => {
+        if (!o.isMesh) return;
 
-      const instances = meshes.map((m) => {
-        const mat = new THREE.MeshStandardMaterial({
-          color: srgb(color),
-          metalness: 0,
-          roughness: 0.8,
-          flatShading: true,
-        });
-        const inst = new THREE.InstancedMesh(m.geometry, mat, count);
+        const name = (o.name || '').toLowerCase();
+        const clr = color !== undefined
+          ? color
+          : name.includes('trunk') || name.includes('stem') || name.includes('log')
+            ? COLORS.treeTrunk
+            : COLORS.treeTop;
+
+        const inst = new THREE.InstancedMesh(
+          o.geometry,
+          new THREE.MeshStandardMaterial({
+            color: srgb(clr),
+            metalness: 0,
+            roughness: 0.8,
+            flatShading: true,
+          }),
+          count,
+        );
         inst.castShadow = cast;
-        return inst;
+        instances.push(inst);
       });
 
       const matrix = new THREE.Matrix4();
