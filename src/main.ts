@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { createCamera } from './scene/camera';
 import { createLights } from './scene/lights';
 import { createGround } from './scene/ground';
@@ -34,10 +35,10 @@ scene.add(cliffs);
 const forest = createForest();
 scene.add(forest);
 
+const gltfLoader = new GLTFLoader();
+const objLoader = new OBJLoader();
 scene.add(createTrack());
 scene.add(createTrain());
-// Import kept for future asset loading
-new GLTFLoader();
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -56,30 +57,30 @@ animate(0);
 
 function createTrack() {
   const group = new THREE.Group();
-  const railMat = new THREE.MeshStandardMaterial({ color: COLORS.rail });
-  const rail1 = new THREE.Mesh(new THREE.TorusGeometry(8, 0.05, 8, 100), railMat);
-  rail1.rotation.x = Math.PI / 2;
-  const rail2 = new THREE.Mesh(new THREE.TorusGeometry(8.5, 0.05, 8, 100), railMat);
-  rail2.rotation.x = Math.PI / 2;
-  group.add(rail1, rail2);
+  const radius = 8;
+  const baseRadius = 2.55;
+  const scale = radius / baseRadius;
 
-  const sleeperGeo = new THREE.BoxGeometry(0.6, 0.1, 0.2);
-  const sleeperMat = new THREE.MeshLambertMaterial({ color: COLORS.sleeper });
-  const count = 40;
-  const sleepers = new THREE.InstancedMesh(sleeperGeo, sleeperMat, count);
-  for (let i = 0; i < count; i++) {
-    const angle = (i / count) * Math.PI * 2;
-    const radius = 8.25;
-    const x = Math.cos(angle) * radius;
-    const z = Math.sin(angle) * radius;
-    const matrix = new THREE.Matrix4()
-      .makeRotationY(-angle)
-      .multiply(new THREE.Matrix4().makeTranslation(x, 0, z));
-    sleepers.setMatrixAt(i, matrix);
-  }
-  sleepers.instanceMatrix.needsUpdate = true;
-  sleepers.castShadow = true;
-  group.add(sleepers);
+  gltfLoader.load('/assets/rails/railroad-rail-curve.glb', (gltf) => {
+    const piece = gltf.scene;
+    piece.traverse((o) => {
+      if (o instanceof THREE.Mesh) o.castShadow = true;
+    });
+    for (let i = 0; i < 4; i++) {
+      const seg = piece.clone();
+      seg.scale.setScalar(scale);
+      seg.rotation.y = i * Math.PI / 2;
+      seg.position.set(Math.cos(i * Math.PI / 2) * radius, 0, Math.sin(i * Math.PI / 2) * radius);
+      group.add(seg);
+    }
+  });
+
+  gltfLoader.load('/assets/rails/railroad-rail-straight.glb', (gltf) => {
+    const straight = gltf.scene;
+    straight.scale.setScalar(scale);
+    straight.position.set(0, 0, 0);
+    group.add(straight);
+  });
 
   group.position.y = 0.05;
   return group;
@@ -87,17 +88,27 @@ function createTrack() {
 
 function createTrain() {
   const group = new THREE.Group();
-  const bodyGeo = new THREE.BoxGeometry(1, 0.8, 2);
-  const bodyMat = new THREE.MeshLambertMaterial({ color: COLORS.trainRed });
-  const loco = new THREE.Mesh(bodyGeo, bodyMat);
-  loco.castShadow = true;
-  group.add(loco);
 
-  const wagon = new THREE.Mesh(bodyGeo, bodyMat);
-  wagon.position.x = -2.2;
-  wagon.castShadow = true;
-  group.add(wagon);
+  objLoader.load('/assets/trains/Locomotive_Front.obj', (obj) => {
+    repaint(obj);
+    group.add(obj);
+  });
 
-  group.position.set(8.25, 0.05, 0);
+  objLoader.load('/assets/trains/CargoTrain_Wagon.obj', (obj) => {
+    repaint(obj);
+    obj.position.x = -2.2;
+    group.add(obj);
+  });
+
+  group.position.set(8, 0.05, 0);
   return group;
+}
+
+function repaint(root: THREE.Object3D) {
+  root.traverse((o) => {
+    if (o instanceof THREE.Mesh) {
+      o.material = new THREE.MeshLambertMaterial({ color: COLORS.trainRed });
+      o.castShadow = true;
+    }
+  });
 }

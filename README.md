@@ -1,6 +1,6 @@
 # Mundo 0 – Diorama
 
-Proyecto base con [Vite](https://vite.dev) + [Three.js](https://threejs.org/) en TypeScript. Renderiza un diorama low‑poly 2.5D con terreno, agua, bosques instanciados, un anillo de vía y tren de prueba.
+Proyecto base con [Vite](https://vite.dev) + [Three.js](https://threejs.org/) en TypeScript. Renderiza un diorama low‑poly 2.5D con terreno, agua, vegetación y rocas generadas aleatoriamente, un anillo de vía y tren de prueba.
 
 ## Requisitos
 - Node 18+
@@ -21,7 +21,7 @@ npm run build
 ```
 
 ## Assets
-Los modelos 3D no se incluyen. Descarga y coloca los archivos GLTF/GLB en:
+Los modelos 3D se encuentran en:
 - `public/assets/nature` – Kenney Nature Kit
 - `public/assets/rails` – Kenney Train Kit (vías recta/curva)
 - `public/assets/trains` – Quaternius Modular Train Pack (locomotoras y vagones)
