@@ -19,7 +19,7 @@ export function createGround() {
   const geo = new THREE.PlaneGeometry(width, depth, 32, 24);
   const pos = geo.attributes.position as THREE.BufferAttribute;
   for (let i = 0; i < pos.count; i++) {
-    const y = (Math.random() - 0.5) * 0.1;
+    const y = (Math.random() - 0.5) * 0.05;
     pos.setY(i, y);
   }
   geo.computeVertexNormals();

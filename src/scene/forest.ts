@@ -6,35 +6,13 @@ const loader = new GLTFLoader();
 export function createForest() {
   const group = new THREE.Group();
 
-  const trees = [
-    'tree_pineTallA.glb',
-    'tree_oak.glb',
-    'tree_cone.glb',
-    'tree_fat.glb',
-    'tree_small.glb',
-  ];
-  const rocks = [
-    'rock_largeA.glb',
-    'rock_largeB.glb',
-    'rock_smallA.glb',
-    'stone_largeA.glb',
-    'stone_smallB.glb',
-  ];
-  const plants = [
-    'mushroom_red.glb',
-    'mushroom_tan.glb',
-    'plant_bush.glb',
-    'cactus_short.glb',
-    'log.glb',
-    'lily_large.glb',
-    'lily_small.glb',
-  ];
+  const trees = ['tree_pineTallA.glb', 'tree_oak.glb', 'tree_cone.glb'];
+  const rocks = ['rock_largeA.glb', 'rock_smallC.glb'];
 
-  trees.forEach((t) => scatter(t, 4 + Math.floor(Math.random() * 6)));
-  rocks.forEach((r) => scatter(r, 2 + Math.floor(Math.random() * 5)));
-  plants.forEach((p) => scatter(p, 2 + Math.floor(Math.random() * 4)));
+  trees.forEach((t) => scatter(t, 6, true));
+  rocks.forEach((r) => scatter(r, 4, false));
 
-  function scatter(file: string, count: number) {
+  function scatter(file: string, count: number, cast: boolean) {
     loader.load(`/assets/nature/${file}`, (gltf) => {
       const meshes: THREE.Mesh[] = [];
       gltf.scene.traverse((o) => {
@@ -46,7 +24,7 @@ export function createForest() {
         const mat = material as THREE.MeshStandardMaterial;
         if (mat.map) mat.map.colorSpace = THREE.SRGBColorSpace;
         const inst = new THREE.InstancedMesh(m.geometry, mat, count);
-        inst.castShadow = true;
+        inst.castShadow = cast;
         return inst;
       });
 
