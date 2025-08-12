@@ -6,7 +6,12 @@ export function createWater() {
   const material = new THREE.MeshStandardMaterial({ color: COLORS.water, transparent: true, opacity: 0.9 });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.rotation.x = -Math.PI / 2;
-  mesh.position.set(-10, 0.02, -5);
+  let x = 0, z = 0;
+  do {
+    x = Math.random() * 24 - 12;
+    z = Math.random() * 16 - 8;
+  } while (Math.hypot(x, z) < 4);
+  mesh.position.set(x, 0.02, z);
   mesh.receiveShadow = true;
 
   const animate = (t: number) => {

@@ -1,6 +1,6 @@
 # Mundo 0 – Diorama
 
-Proyecto base con [Vite](https://vite.dev) + [Three.js](https://threejs.org/) en TypeScript. Renderiza un diorama low‑poly 2.5D con terreno, agua, bosques instanciados, un anillo de vía y tren de prueba.
+Proyecto base con [Vite](https://vite.dev) + [Three.js](https://threejs.org/) en TypeScript. Renderiza un diorama low‑poly 2.5D con terreno, agua, vegetación y rocas generadas aleatoriamente, un anillo de vía y tren de prueba.
 
 ## Requisitos
 - Node 18+

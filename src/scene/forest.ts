@@ -1,55 +1,76 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { COLORS } from './uiColors';
 
 const loader = new GLTFLoader();
 
 export function createForest() {
   const group = new THREE.Group();
 
-  loader.load('/assets/nature/tree_pineTallA.glb', (gltf) => {
-    const [trunkObj, topObj] = gltf.scene.children as THREE.Mesh[];
-    const trunkGeo = trunkObj.geometry.clone();
-    const topGeo = topObj.geometry.clone();
-    const trunkMat = new THREE.MeshLambertMaterial({ color: COLORS.treeTrunk, flatShading: true });
-    const topMat = new THREE.MeshLambertMaterial({ color: COLORS.treeTop, flatShading: true });
-    const count = 50;
-    const trunkMesh = new THREE.InstancedMesh(trunkGeo, trunkMat, count);
-    const topMesh = new THREE.InstancedMesh(topGeo, topMat, count);
+  const trees = [
+    'tree_pineTallA.glb',
+    'tree_oak.glb',
+    'tree_cone.glb',
+    'tree_fat.glb',
+    'tree_small.glb',
+  ];
+  const rocks = [
+    'rock_largeA.glb',
+    'rock_largeB.glb',
+    'rock_smallA.glb',
+    'stone_largeA.glb',
+    'stone_smallB.glb',
+  ];
+  const plants = [
+    'mushroom_red.glb',
+    'mushroom_tan.glb',
+    'plant_bush.glb',
+    'cactus_short.glb',
+    'log.glb',
+    'lily_large.glb',
+    'lily_small.glb',
+  ];
 
-    let idx = 0;
-    while (idx < count) {
-      const x = Math.random() * 28 - 14;
-      const z = Math.random() * 20 - 10;
-      if (Math.hypot(x, z) < 6) continue;
-      const trunkMatrix = new THREE.Matrix4().makeTranslation(x, 0, z);
-      trunkMesh.setMatrixAt(idx, trunkMatrix);
-      const topMatrix = new THREE.Matrix4().makeTranslation(x, 0, z);
-      topMesh.setMatrixAt(idx, topMatrix);
-      idx++;
-    }
-    trunkMesh.instanceMatrix.needsUpdate = true;
-    topMesh.instanceMatrix.needsUpdate = true;
-    trunkMesh.castShadow = true;
-    topMesh.castShadow = true;
-    group.add(trunkMesh, topMesh);
-  });
+  trees.forEach((t) => scatter(t, 4 + Math.floor(Math.random() * 6)));
+  rocks.forEach((r) => scatter(r, 2 + Math.floor(Math.random() * 5)));
+  plants.forEach((p) => scatter(p, 2 + Math.floor(Math.random() * 4)));
 
-  loader.load('/assets/nature/rock_largeA.glb', (gltf) => {
-    const rockGeo = (gltf.scene.children[0] as THREE.Mesh).geometry.clone();
-    const rockMat = new THREE.MeshLambertMaterial({ color: 0x888888, flatShading: true });
-    const rocks = new THREE.InstancedMesh(rockGeo, rockMat, 20);
-    for (let i = 0; i < 20; i++) {
-      const x = Math.random() * 30 - 15;
-      const z = Math.random() * 22 - 11;
-      if (Math.hypot(x, z) < 5) { i--; continue; }
-      const matrix = new THREE.Matrix4().makeTranslation(x, 0, z);
-      rocks.setMatrixAt(i, matrix);
-    }
-    rocks.instanceMatrix.needsUpdate = true;
-    rocks.castShadow = true;
-    group.add(rocks);
-  });
+  function scatter(file: string, count: number) {
+    loader.load(`/assets/nature/${file}`, (gltf) => {
+      const meshes: THREE.Mesh[] = [];
+      gltf.scene.traverse((o) => {
+        if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh);
+      });
+
+      const instances = meshes.map((m) => {
+        const material = Array.isArray(m.material) ? m.material[0] : m.material;
+        const inst = new THREE.InstancedMesh(m.geometry, material as THREE.Material, count);
+        inst.castShadow = true;
+        return inst;
+      });
+
+      const matrix = new THREE.Matrix4();
+      const pos = new THREE.Vector3();
+      const quat = new THREE.Quaternion();
+      const scale = new THREE.Vector3();
+
+      for (let i = 0; i < count; i++) {
+        const x = Math.random() * 28 - 14;
+        const z = Math.random() * 20 - 10;
+        if (Math.hypot(x, z) < 6) { i--; continue; }
+        pos.set(x, 0, z);
+        quat.setFromEuler(new THREE.Euler(0, Math.random() * Math.PI * 2, 0));
+        const s = 0.8 + Math.random() * 0.4;
+        scale.set(s, s, s);
+        matrix.compose(pos, quat, scale);
+        instances.forEach((inst) => inst.setMatrixAt(i, matrix));
+      }
+
+      instances.forEach((inst) => {
+        inst.instanceMatrix.needsUpdate = true;
+        group.add(inst);
+      });
+    });
+  }
 
   return group;
 }
