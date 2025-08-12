@@ -1,0 +1,543 @@
+
+/* ===== FILE: main.ts ===== */
+import * as THREE from 'three';
+import { createCamera } from './scene/camera';
+import { createLights } from './scene/lights';
+import { createGround } from './scene/ground';
+import { createWater } from './scene/water';
+import { createCliffs } from './scene/cliffs';
+import { createForest } from './scene/forest';
+import { createRails } from './scene/rails';
+import { createTrain } from './scene/train';
+
+const srgb = (hex: number | string) => new THREE.Color(hex as any).convertSRGBToLinear();
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.25;
+
+document.getElementById('app')!.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = srgb(0xf6f6f2);
+scene.fog = new THREE.Fog(srgb(0xf6f6f2), 55, 100);
+
+const { camera, controls } = createCamera(renderer);
+const { ambient, hemi, dir } = createLights();
+scene.add(ambient, hemi, dir);
+
+const ground = createGround();
+scene.add(ground);
+
+const water = createWater();
+scene.add(water.mesh);
+
+const cliffs = createCliffs();
+scene.add(cliffs);
+
+const forest = createForest();
+scene.add(forest);
+
+const rails = createRails();
+scene.add(rails.group);
+
+const spawn = rails.getSpawnPose();
+const train = createTrain({
+  random: true,
+  pose: { position: spawn.position, yaw: spawn.yaw, railY: rails.railHeight },
+});
+scene.add(train);
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+function animate(time: number) {
+  requestAnimationFrame(animate);
+  water.animate(time);
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+animate(0);
+
+
+/* ===== FILE: scene/camera.ts ===== */
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+export function createCamera(renderer: THREE.WebGLRenderer) {
+  const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 1000);
+  camera.position.set(22, 24, 22);
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.target.set(0, 0, 0);
+  controls.enableDamping = true;
+  controls.minDistance = 12;
+  controls.maxDistance = 48;
+  controls.maxPolarAngle = Math.PI * 0.45;
+  const bounds = new THREE.Box3(new THREE.Vector3(-16, -Infinity, -12), new THREE.Vector3(16, Infinity, 12));
+  controls.addEventListener('change', () => {
+    controls.target.x = THREE.MathUtils.clamp(controls.target.x, bounds.min.x, bounds.max.x);
+    controls.target.z = THREE.MathUtils.clamp(controls.target.z, bounds.min.z, bounds.max.z);
+  });
+  return { camera, controls };
+}
+
+
+/* ===== FILE: scene/cliffs.ts ===== */
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { COLORS } from './uiColors';
+
+const loader = new GLTFLoader();
+const srgb = (hex: number | string) => new THREE.Color(hex as any).convertSRGBToLinear();
+
+export function createCliffs() {
+  const group = new THREE.Group();
+  loader.load('/assets/nature/cliff_block_stone.glb', (gltf) => {
+    const base = gltf.scene;
+    ensureSRGB(base);
+    const levels = [
+      { y: 0.3, offset: new THREE.Vector3(0, 0, 0), s: 1.0 },
+      { y: 0.6, offset: new THREE.Vector3(-1.2, 0, 0.6), s: 0.9 },
+      { y: 0.9, offset: new THREE.Vector3(-2.0, 0, 1.2), s: 0.85 },
+    ];
+
+    levels.forEach((L) => {
+      const level = base.clone(true);
+      level.traverse((o: any) => {
+        if (o.isMesh) {
+          const m = (o.material as THREE.MeshStandardMaterial).clone();
+          if (m.map) m.map.colorSpace = THREE.SRGBColorSpace;
+          m.color = srgb(COLORS.terrain);
+          m.metalness = 0;
+          m.roughness = 0.9;
+          o.material = m;
+          o.castShadow = true;
+          o.receiveShadow = true;
+        }
+      });
+      level.position.copy(L.offset);
+      level.position.y = L.y;
+      level.scale.setScalar(L.s);
+      group.add(level);
+    });
+  });
+  group.position.set(12, 0, 4);
+  return group;
+}
+
+function ensureSRGB(obj: THREE.Object3D) {
+  obj.traverse((o) => {
+    if (o instanceof THREE.Mesh) {
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      mats.forEach((m) => {
+        const mat = m as THREE.MeshStandardMaterial;
+        if (mat.map) mat.map.colorSpace = THREE.SRGBColorSpace;
+      });
+    }
+  });
+}
+
+
+/* ===== FILE: scene/forest.ts ===== */
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { COLORS } from './uiColors';
+
+const loader = new GLTFLoader();
+const srgb = (hex: number | string) => new THREE.Color(hex as any).convertSRGBToLinear();
+
+export function createForest() {
+  const group = new THREE.Group();
+
+  const trees = ['tree_pineTallA.glb', 'tree_oak.glb', 'tree_cone.glb'];
+  const rocks = ['rock_largeA.glb', 'rock_smallC.glb'];
+
+  trees.forEach((t) => scatter(t, 6, true));
+  rocks.forEach((r) => scatter(r, 4, false, COLORS.terrain));
+
+  function scatter(file: string, count: number, cast: boolean, color?: number) {
+    loader.load(`/assets/nature/${file}`, (gltf) => {
+      const instances: THREE.InstancedMesh[] = [];
+      gltf.scene.traverse((o: any) => {
+        if (!o.isMesh) return;
+
+        const name = (o.name || '').toLowerCase();
+        const clr = color !== undefined
+          ? color
+          : name.includes('trunk') || name.includes('stem') || name.includes('log')
+            ? COLORS.treeTrunk
+            : COLORS.treeTop;
+
+        const inst = new THREE.InstancedMesh(
+          o.geometry,
+          new THREE.MeshStandardMaterial({
+            color: srgb(clr),
+            metalness: 0,
+            roughness: 0.8,
+            flatShading: true,
+          }),
+          count,
+        );
+        inst.castShadow = cast;
+        instances.push(inst);
+      });
+
+      const matrix = new THREE.Matrix4();
+      const pos = new THREE.Vector3();
+      const quat = new THREE.Quaternion();
+      const scale = new THREE.Vector3();
+
+      for (let i = 0; i < count; i++) {
+        const x = Math.random() * 28 - 14;
+        const z = Math.random() * 20 - 10;
+        if (Math.hypot(x, z) < 6) { i--; continue; }
+        pos.set(x, 0, z);
+        quat.setFromEuler(new THREE.Euler(0, Math.random() * Math.PI * 2, 0));
+        const s = 0.85 + Math.random() * 0.3;
+        scale.set(s, s, s);
+        matrix.compose(pos, quat, scale);
+        instances.forEach((inst) => inst.setMatrixAt(i, matrix));
+      }
+
+      instances.forEach((inst) => {
+        inst.instanceMatrix.needsUpdate = true;
+        group.add(inst);
+      });
+    });
+  }
+
+  return group;
+}
+
+
+/* ===== FILE: scene/ground.ts ===== */
+import * as THREE from 'three';
+import { COLORS } from './uiColors';
+
+const srgb = (hex: number | string) => new THREE.Color(hex as any).convertSRGBToLinear();
+
+export function createGround() {
+  const width = 32;
+  const depth = 24;
+  const baseHeight = 1;
+  const group = new THREE.Group();
+
+  const baseGeo = new THREE.BoxGeometry(width + 2, baseHeight, depth + 2);
+  const baseMat = new THREE.MeshStandardMaterial({
+    color: srgb(COLORS.terrain), metalness: 0, roughness: 0.85,
+  });
+  const base = new THREE.Mesh(baseGeo, baseMat);
+  base.position.y = -baseHeight / 2;
+  base.receiveShadow = true;
+  group.add(base);
+
+  const geo = new THREE.PlaneGeometry(width, depth, 32, 24);
+  const pos = geo.attributes.position as THREE.BufferAttribute;
+  for (let i = 0; i < pos.count; i++) {
+    const y = (Math.random() - 0.5) * 0.05;
+    pos.setY(i, y);
+  }
+  geo.computeVertexNormals();
+  geo.rotateX(-Math.PI / 2);
+// scene/ground.ts (dentro de createGround, tras crear el geo y antes del material)
+function tinyGrassTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 4;
+  const ctx = c.getContext('2d')!;
+  // parches suaves
+  const g1 = '#e8fab5', g2 = '#dff6a1', g3 = '#e4f9b0';
+  ctx.fillStyle = g1; ctx.fillRect(0,0,4,4);
+  ctx.fillStyle = g2; ctx.fillRect(0,0,2,2);
+  ctx.fillStyle = g3; ctx.fillRect(2,2,2,2);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(16, 12); // tablero 32×24 -> 2 texels por unidad
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+const mat = new THREE.MeshStandardMaterial({
+  color: srgb(0xDFF6A1),
+  metalness: 0,
+  roughness: 0.85,
+  map: tinyGrassTexture(),   // << añade variación sutil
+});
+
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.receiveShadow = true;
+  group.add(mesh);
+
+  return group;
+}
+
+
+/* ===== FILE: scene/lights.ts ===== */
+import * as THREE from 'three';
+
+export function createLights() {
+  const ambient = new THREE.AmbientLight(0xffffff, 0.55);
+  const hemi = new THREE.HemisphereLight(0xfdf7e8, 0xcbd3d0, 0.35);
+
+  const dir = new THREE.DirectionalLight(0xffffff, 0.9);
+  dir.position.set(20, 30, 15);
+  dir.castShadow = true;
+  dir.shadow.mapSize.set(2048, 2048);
+  dir.shadow.bias = -0.00015;
+  const cam = dir.shadow.camera as THREE.OrthographicCamera;
+  cam.left = cam.bottom = -40;
+  cam.right = cam.top = 40;
+  cam.updateProjectionMatrix();
+
+  return { ambient, hemi, dir };
+}
+
+
+/* ===== FILE: scene/rails.ts ===== */
+// scene/rails.ts
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const loader = new GLTFLoader();
+
+const TILE = 2.0;      // 1 recta = 2u
+const Y_RAIL = 0.08;   // un poco más alto para que no se pierda contra el suelo
+const SEGMENTS = 36;   // círculo más suave
+const R_FACTOR = 1.30; // círculo más grande que antes
+
+export function createRails() {
+  const group = new THREE.Group();
+
+  const candidates = [
+    '/assets/rails/railroad-straight.glb',
+    '/assets/rails/railroad-rail-straight.glb',
+    '/assets/rails/track.glb',
+    '/assets/rails/track-single.glb',
+    '/assets/rails/track-single-detailed.glb',
+  ];
+
+  loadFirstExisting(candidates).then((straight) => {
+    if (!straight) {
+      console.warn('[rails] no se encontró ninguna recta de las candidatas:', candidates);
+      return;
+    }
+    preparePiece(straight);
+    buildLoop(straight);
+  });
+
+  function preparePiece(obj: THREE.Object3D) {
+    obj.traverse((o: any) => {
+      if (!o.isMesh) return;
+      const name = (o.name || '').toLowerCase();
+      const color =
+        name.includes('rail')  ? 0x6F6F6F :      // metal
+        name.includes('sleep') ? 0x8B5A2B :      // durmientes
+                                0x8B5A2B;
+      o.material = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(color).convertSRGBToLinear(),
+        metalness: 0,
+        roughness: 0.6,
+        flatShading: true,
+      });
+      o.castShadow = true; o.receiveShadow = true;
+    });
+
+    // Normaliza la longitud a TILE (eje x/z mayor)
+    obj.updateWorldMatrix(true, true);
+    const b = new THREE.Box3().setFromObject(obj);
+    const s = b.getSize(new THREE.Vector3());
+    const span = Math.max(s.x, s.z) || 1; // evita división por cero
+    const scale = THREE.MathUtils.clamp(TILE / span, 0.02, 5.0);
+    obj.scale.setScalar(scale);
+    obj.position.y = Y_RAIL;
+    obj.updateWorldMatrix(true, true);
+  }
+
+  const center = new THREE.Vector3(0, 0, 0);
+  const chord = TILE;
+  const baseR = chord / (2 * Math.sin(Math.PI / SEGMENTS));
+  const R = baseR * R_FACTOR;
+
+  function poseAt(theta = 0) {
+    const pos = new THREE.Vector3(center.x + R * Math.cos(theta), Y_RAIL, center.z + R * Math.sin(theta));
+    const yaw = theta + Math.PI / 2; // tangente
+    return { position: pos, yaw };
+  }
+
+  function buildLoop(piece: THREE.Object3D) {
+    for (let i = 0; i < SEGMENTS; i++) {
+      const theta = (i / SEGMENTS) * Math.PI * 2;
+      const inst = piece.clone(true);
+      const { position, yaw } = poseAt(theta);
+      inst.position.copy(position);
+      inst.rotation.y = yaw;
+      group.add(inst);
+    }
+  }
+
+  async function loadFirstExisting(paths: string[]) {
+    for (const p of paths) {
+      try {
+        const gltf = await new Promise<THREE.Object3D | null>((resolve, reject) => {
+          loader.load(p, (g) => resolve(g.scene), undefined, () => resolve(null));
+        });
+        if (gltf) return gltf;
+      } catch {}
+    }
+    return null;
+  }
+
+  return {
+    group,
+    getSpawnPose: () => poseAt(0),
+    railHeight: Y_RAIL,
+  };
+}
+
+
+/* ===== FILE: scene/train.ts ===== */
+// scene/train.ts
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { COLORS } from './uiColors';
+
+const loader = new GLTFLoader();
+const srgb = (hex: number | string) => new THREE.Color(hex as any).convertSRGBToLinear();
+
+type Pose = { position?: THREE.Vector3; yaw?: number; railY?: number };
+type TrainOpts = { random?: boolean; pose?: Pose };
+
+const HEADS = [
+  'train-electric-city-a.glb',
+  'train-diesel-a.glb',
+  'train-locomotive-a.glb',
+  'train-electric-bullet-a.glb',
+  'train-tram-classic.glb',
+  'train-tram-modern.glb',
+];
+
+const CARS = [
+  'train-electric-city-b.glb',
+  'train-electric-city-c.glb',
+  'train-carriage-box.glb',
+  'train-carriage-wood.glb',
+  'train-carriage-tank.glb',
+  'train-carriage-lumber.glb',
+  'train-carriage-flatbed.glb',
+];
+
+const CAR_LEN = 1.6;   // más corto que la cuerda de vía (TILE=2.0)
+const GAP     = 0.03;  // separación mínima
+const SCALE_MIN = 0.05, SCALE_MAX = 5.0; // seguridad
+
+function pick<T>(arr: T[]) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+export function createTrain(opts: TrainOpts = {}) {
+  const group = new THREE.Group();
+  const numCars = opts.random ? 1 + Math.floor(Math.random() * 3) : 2;
+  const files = [
+    (opts.random ? pick(HEADS) : 'train-electric-city-a.glb'),
+    ...Array.from({ length: numCars }, () => (opts.random ? pick(CARS) : 'train-carriage-box.glb')),
+  ];
+
+  let loaded = 0;
+  const expected = files.length;
+
+  files.forEach((file, i) => {
+    loader.load(`/assets/rails/${file}`, (gltf) => {
+      const obj = gltf.scene;
+
+      obj.traverse((o: any) => {
+        if (!o.isMesh) return;
+        const mat = (o.material as THREE.MeshStandardMaterial).clone();
+        if (mat.map) mat.map.colorSpace = THREE.SRGBColorSpace;
+        mat.metalness = 0; mat.roughness = 0.6; mat.color = srgb(COLORS.trainRed);
+        o.material = mat; o.castShadow = true;
+      });
+
+      obj.updateWorldMatrix(true, true);
+      const box = new THREE.Box3().setFromObject(obj);
+      const size = box.getSize(new THREE.Vector3());
+      const length = Math.max(size.x, size.z) || 1; // seguridad
+      const scl = THREE.MathUtils.clamp(CAR_LEN / length, SCALE_MIN, SCALE_MAX);
+      obj.scale.setScalar(scl);
+
+      // encadena los vagones detrás de la cabeza
+      obj.position.z = -i * (CAR_LEN + GAP);
+      group.add(obj);
+
+      if (++loaded === expected) {
+        // Apoyo vertical sobre la vía, y pose final
+        const bb = new THREE.Box3().setFromObject(group);
+        const railY = (opts.pose?.railY ?? 0.08);
+        const clearance = 0.02;
+        group.position.y += (railY + clearance) - bb.min.y;
+        if (opts.pose?.yaw !== undefined) group.rotation.y = opts.pose.yaw;
+        if (opts.pose?.position) group.position.add(opts.pose.position);
+      }
+    });
+  });
+
+  return group;
+}
+
+
+/* ===== FILE: scene/uiColors.ts ===== */
+export const COLORS = {
+  grass: 0xCFE7A2,
+  terrain: 0xF7F7F0,
+  water: 0xA6FBFF,
+  sleeper: 0x8B5A2B,
+  rail: 0x6F6F6F,
+  treeTop: 0x34A853,
+  treeTrunk: 0x8A5A44,
+  trainRed: 0xE31C3D,
+};
+
+
+/* ===== FILE: scene/water.ts ===== */
+import * as THREE from 'three';
+import { COLORS } from './uiColors';
+
+const srgb = (hex: number) => new THREE.Color(hex).convertSRGBToLinear();
+
+export function createWater() {
+  const geometry = new THREE.PlaneGeometry(6, 4, 1, 1);
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 2;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#A6FBFF';
+  ctx.fillRect(0, 0, 2, 2);
+  ctx.fillStyle = '#9fe0e5';
+  ctx.fillRect(0, 0, 1, 1);
+  ctx.fillRect(1, 1, 1, 1);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const material = new THREE.MeshStandardMaterial({ color: srgb(COLORS.water), transparent: true, opacity: 0.92, map: texture });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.rotation.x = -Math.PI / 2;
+  let x = 0, z = 0;
+  do {
+    x = Math.random() * 24 - 12;
+    z = Math.random() * 16 - 8;
+  } while (Math.hypot(x, z) < 4);
+  mesh.position.set(x, 0.02, z);
+  mesh.receiveShadow = true;
+
+  const animate = (t: number) => {
+    mesh.material.opacity = 0.92 + Math.sin(t * 0.001) * 0.02;
+    texture.offset.set(t * 0.00005, t * 0.00007);
+  };
+
+  return { mesh, animate };
+}
+

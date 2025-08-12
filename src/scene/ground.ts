@@ -26,10 +26,30 @@ export function createGround() {
   }
   geo.computeVertexNormals();
   geo.rotateX(-Math.PI / 2);
-  const mat = new THREE.MeshStandardMaterial({
-    color: srgb(0xDFF6A1), // un paso más luminoso que 0xD7F2A2
-    metalness: 0, roughness: 0.85,
-  });
+// scene/ground.ts (dentro de createGround, tras crear el geo y antes del material)
+function tinyGrassTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 4;
+  const ctx = c.getContext('2d')!;
+  // parches suaves
+  const g1 = '#e8fab5', g2 = '#dff6a1', g3 = '#e4f9b0';
+  ctx.fillStyle = g1; ctx.fillRect(0,0,4,4);
+  ctx.fillStyle = g2; ctx.fillRect(0,0,2,2);
+  ctx.fillStyle = g3; ctx.fillRect(2,2,2,2);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(16, 12); // tablero 32×24 -> 2 texels por unidad
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+const mat = new THREE.MeshStandardMaterial({
+  color: srgb(0xDFF6A1),
+  metalness: 0,
+  roughness: 0.85,
+  map: tinyGrassTexture(),   // << añade variación sutil
+});
+
   const mesh = new THREE.Mesh(geo, mat);
   mesh.receiveShadow = true;
   group.add(mesh);
