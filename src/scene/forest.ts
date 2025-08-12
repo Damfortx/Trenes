@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { COLORS } from './uiColors';
 
 const loader = new GLTFLoader();
+const srgb = (hex: number | string) => new THREE.Color(hex as any).convertSRGBToLinear();
 
 export function createForest() {
   const group = new THREE.Group();
@@ -9,10 +11,10 @@ export function createForest() {
   const trees = ['tree_pineTallA.glb', 'tree_oak.glb', 'tree_cone.glb'];
   const rocks = ['rock_largeA.glb', 'rock_smallC.glb'];
 
-  trees.forEach((t) => scatter(t, 6, true));
-  rocks.forEach((r) => scatter(r, 4, false));
+  trees.forEach((t) => scatter(t, 6, true, COLORS.treeTop));
+  rocks.forEach((r) => scatter(r, 4, false, COLORS.terrain));
 
-  function scatter(file: string, count: number, cast: boolean) {
+  function scatter(file: string, count: number, cast: boolean, color: number) {
     loader.load(`/assets/nature/${file}`, (gltf) => {
       const meshes: THREE.Mesh[] = [];
       gltf.scene.traverse((o) => {
@@ -20,9 +22,12 @@ export function createForest() {
       });
 
       const instances = meshes.map((m) => {
-        const material = Array.isArray(m.material) ? m.material[0] : m.material;
-        const mat = material as THREE.MeshStandardMaterial;
-        if (mat.map) mat.map.colorSpace = THREE.SRGBColorSpace;
+        const mat = new THREE.MeshStandardMaterial({
+          color: srgb(color),
+          metalness: 0,
+          roughness: 0.8,
+          flatShading: true,
+        });
         const inst = new THREE.InstancedMesh(m.geometry, mat, count);
         inst.castShadow = cast;
         return inst;

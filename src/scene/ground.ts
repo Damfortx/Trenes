@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { COLORS } from './uiColors';
 
-const srgb = (hex: number) => new THREE.Color(hex).convertSRGBToLinear();
+const srgb = (hex: number | string) => new THREE.Color(hex as any).convertSRGBToLinear();
 
 export function createGround() {
   const width = 32;
@@ -10,7 +10,9 @@ export function createGround() {
   const group = new THREE.Group();
 
   const baseGeo = new THREE.BoxGeometry(width + 2, baseHeight, depth + 2);
-  const baseMat = new THREE.MeshLambertMaterial({ color: srgb(COLORS.terrain) });
+  const baseMat = new THREE.MeshStandardMaterial({
+    color: srgb(COLORS.terrain), metalness: 0, roughness: 0.85,
+  });
   const base = new THREE.Mesh(baseGeo, baseMat);
   base.position.y = -baseHeight / 2;
   base.receiveShadow = true;
@@ -24,7 +26,9 @@ export function createGround() {
   }
   geo.computeVertexNormals();
   geo.rotateX(-Math.PI / 2);
-  const mat = new THREE.MeshLambertMaterial({ color: srgb(COLORS.grass) });
+  const mat = new THREE.MeshStandardMaterial({
+    color: srgb(0xD7F2A2), metalness: 0, roughness: 0.85,
+  });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.receiveShadow = true;
   group.add(mesh);

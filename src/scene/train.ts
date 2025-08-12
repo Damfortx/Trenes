@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { COLORS } from './uiColors';
 
 const loader = new GLTFLoader();
-const srgb = (hex: number) => new THREE.Color(hex).convertSRGBToLinear();
+const srgb = (hex: number | string) => new THREE.Color(hex as any).convertSRGBToLinear();
 
 export function createTrain() {
   const group = new THREE.Group();
@@ -18,13 +18,16 @@ export function createTrain() {
           const mesh = o as THREE.Mesh;
           const mat = (mesh.material as THREE.MeshStandardMaterial).clone();
           if (mat.map) mat.map.colorSpace = THREE.SRGBColorSpace;
+          mat.metalness = 0;
+          mat.roughness = 0.6;
           mat.color = srgb(COLORS.trainRed);
           mesh.material = mat;
           mesh.castShadow = true;
         }
       });
       const box = new THREE.Box3().setFromObject(obj);
-      const length = box.getSize(new THREE.Vector3()).z;
+      const size = box.getSize(new THREE.Vector3());
+      const length = Math.max(size.x, size.z);
       const scale = 2.6 / length;
       obj.scale.setScalar(scale);
       obj.position.z = -i * 2.6;

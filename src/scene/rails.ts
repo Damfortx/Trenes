@@ -8,7 +8,7 @@ export function createRails() {
   let straight: THREE.Object3D | null = null;
   let curve: THREE.Object3D | null = null;
 
-  loader.load('/assets/rails/railroad-rail-straight.glb', (gltf) => {
+  loader.load('/assets/rails/track.glb', (gltf) => {
     straight = gltf.scene;
     preparePiece(straight);
     build();
@@ -24,20 +24,32 @@ export function createRails() {
     obj.traverse((o) => {
       if ((o as THREE.Mesh).isMesh) {
         const mesh = o as THREE.Mesh;
+        let mat = (mesh.material as THREE.MeshStandardMaterial).clone();
+        if (mat.map) mat.map.colorSpace = THREE.SRGBColorSpace;
+        mat.metalness = 0;
+        mat.roughness = 0.6;
+        mesh.material = mat;
         mesh.castShadow = true;
         mesh.receiveShadow = true;
       }
     });
     const box = new THREE.Box3().setFromObject(obj);
     const size = box.getSize(new THREE.Vector3());
-    const length = Math.max(size.x, size.z);
-    const scale = 2 / length;
-    obj.scale.setScalar(scale);
+    const span = Math.max(size.x, size.z);
+    const scale = 2 / span;
+    obj.scale.set(scale, scale, scale);
     obj.position.y = 0.08;
+    obj.updateWorldMatrix(true, true);
   }
 
   function build() {
     if (!straight || !curve) return;
+    const debugOnce = (obj: THREE.Object3D) => {
+      const b = new THREE.Box3().setFromObject(obj);
+      const h = new THREE.Box3Helper(b, 0x00ff00);
+      group.add(h);
+    };
+
     const pieces = [
       { obj: straight, rot: 0, pos: new THREE.Vector3(-2, 0.08, 2) },
       { obj: straight, rot: 0, pos: new THREE.Vector3(0, 0.08, 2) },
@@ -52,11 +64,12 @@ export function createRails() {
       { obj: straight, rot: Math.PI / 2, pos: new THREE.Vector3(-2, 0.08, 2) },
       { obj: curve, rot: Math.PI / 2, pos: new THREE.Vector3(-2, 0.08, 2) },
     ];
-    pieces.forEach((p) => {
+    pieces.forEach((p, idx) => {
       const inst = p.obj!.clone(true);
       inst.rotation.y = p.rot;
       inst.position.copy(p.pos);
       group.add(inst);
+      if (idx === 0) debugOnce(inst);
     });
   }
 
