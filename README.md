@@ -21,7 +21,7 @@ npm run build
 ```
 
 ## Assets
-Los modelos 3D no se incluyen. Descarga y coloca los archivos GLTF/GLB en:
+Los modelos 3D se encuentran en:
 - `public/assets/nature` – Kenney Nature Kit
 - `public/assets/rails` – Kenney Train Kit (vías recta/curva)
 - `public/assets/trains` – Quaternius Modular Train Pack (locomotoras y vagones)
