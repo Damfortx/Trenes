@@ -8,7 +8,7 @@ export function createRails() {
   let straight: THREE.Object3D | null = null;
   let curve: THREE.Object3D | null = null;
 
-  loader.load('/assets/rails/railroad-rail-straight.glb', (gltf) => {
+  loader.load('/assets/rails/railroad-straight.glb', (gltf) => {
     straight = gltf.scene;
     preparePiece(straight);
     build();
@@ -24,14 +24,19 @@ export function createRails() {
     obj.traverse((o) => {
       if ((o as THREE.Mesh).isMesh) {
         const mesh = o as THREE.Mesh;
+        let mat = (mesh.material as THREE.MeshStandardMaterial).clone();
+        if (mat.map) mat.map.colorSpace = THREE.SRGBColorSpace;
+        mat.metalness = 0;
+        mat.roughness = 0.6;
+        mesh.material = mat;
         mesh.castShadow = true;
         mesh.receiveShadow = true;
       }
     });
     const box = new THREE.Box3().setFromObject(obj);
     const size = box.getSize(new THREE.Vector3());
-    const length = Math.max(size.x, size.z);
-    const scale = 2 / length;
+    const span = Math.max(size.x, size.z);
+    const scale = 2 / span;
     obj.scale.setScalar(scale);
     obj.position.y = 0.08;
   }

@@ -8,7 +8,7 @@ import { createForest } from './scene/forest';
 import { createRails } from './scene/rails';
 import { createTrain } from './scene/train';
 
-const srgb = (hex: number) => new THREE.Color(hex).convertSRGBToLinear();
+const srgb = (hex: number | string) => new THREE.Color(hex as any).convertSRGBToLinear();
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -17,7 +17,7 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.0;
+renderer.toneMappingExposure = 1.2;
 
 document.getElementById('app')!.appendChild(renderer.domElement);
 
@@ -26,8 +26,8 @@ scene.background = srgb(0xf6f6f2);
 scene.fog = new THREE.Fog(srgb(0xf6f6f2), 40, 80);
 
 const { camera, controls } = createCamera(renderer);
-const { ambient, dir } = createLights();
-scene.add(ambient, dir);
+const { ambient, hemi, dir } = createLights();
+scene.add(ambient, hemi, dir);
 
 const ground = createGround();
 scene.add(ground);

@@ -3,34 +3,36 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { COLORS } from './uiColors';
 
 const loader = new GLTFLoader();
-const srgb = (hex: number) => new THREE.Color(hex).convertSRGBToLinear();
+const srgb = (hex: number | string) => new THREE.Color(hex as any).convertSRGBToLinear();
 
 export function createCliffs() {
   const group = new THREE.Group();
   loader.load('/assets/nature/cliff_block_stone.glb', (gltf) => {
     const base = gltf.scene;
     ensureSRGB(base);
-    const heights = [0.8, 0.7, 0.6];
-    let y = 0;
-    heights.forEach((h) => {
+    const levels = [
+      { y: 0.3, offset: new THREE.Vector3(0, 0, 0), s: 1.0 },
+      { y: 0.6, offset: new THREE.Vector3(-1.2, 0, 0.6), s: 0.9 },
+      { y: 0.9, offset: new THREE.Vector3(-2.0, 0, 1.2), s: 0.85 },
+    ];
+
+    levels.forEach((L) => {
       const level = base.clone(true);
-      level.traverse((o) => {
-        if ((o as THREE.Mesh).isMesh) {
-          const mesh = o as THREE.Mesh;
-          const mat = (mesh.material as THREE.MeshStandardMaterial).clone();
-          if (mat.map) mat.map.colorSpace = THREE.SRGBColorSpace;
-          mat.color = srgb(COLORS.terrain);
-          mesh.material = mat;
-          mesh.castShadow = true;
-          mesh.receiveShadow = true;
+      level.traverse((o: any) => {
+        if (o.isMesh) {
+          const m = (o.material as THREE.MeshStandardMaterial).clone();
+          if (m.map) m.map.colorSpace = THREE.SRGBColorSpace;
+          m.color = srgb(COLORS.terrain);
+          m.metalness = 0;
+          m.roughness = 0.9;
+          o.material = m;
+          o.castShadow = true;
+          o.receiveShadow = true;
         }
       });
-      const box = new THREE.Box3().setFromObject(level);
-      const size = box.getSize(new THREE.Vector3());
-      const scale = h / size.y;
-      level.scale.setScalar(scale);
-      level.position.y = y + h / 2;
-      y += h;
+      level.position.copy(L.offset);
+      level.position.y = L.y;
+      level.scale.setScalar(L.s);
       group.add(level);
     });
   });
