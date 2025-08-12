@@ -1,9 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { COLORS } from './uiColors';
 
 const loader = new GLTFLoader();
-const srgb = (hex: number | string) => new THREE.Color(hex as any).convertSRGBToLinear();
 
 export function createCliffs() {
   const group = new THREE.Group();
@@ -20,12 +18,13 @@ export function createCliffs() {
       const level = base.clone(true);
       level.traverse((o: any) => {
         if (o.isMesh) {
-          const m = (o.material as THREE.MeshStandardMaterial).clone();
-          if (m.map) m.map.colorSpace = THREE.SRGBColorSpace;
-          m.color = srgb(COLORS.terrain);
-          m.metalness = 0;
-          m.roughness = 0.9;
-          o.material = m;
+          const mats = Array.isArray(o.material) ? o.material : [o.material];
+          mats.forEach((m: any) => {
+            if (m.map) {
+              m.map.colorSpace = THREE.SRGBColorSpace;
+              m.map.anisotropy = 4;
+            }
+          });
           o.castShadow = true;
           o.receiveShadow = true;
         }
@@ -46,7 +45,10 @@ function ensureSRGB(obj: THREE.Object3D) {
       const mats = Array.isArray(o.material) ? o.material : [o.material];
       mats.forEach((m) => {
         const mat = m as THREE.MeshStandardMaterial;
-        if (mat.map) mat.map.colorSpace = THREE.SRGBColorSpace;
+        if (mat.map) {
+          mat.map.colorSpace = THREE.SRGBColorSpace;
+          mat.map.anisotropy = 4;
+        }
       });
     }
   });

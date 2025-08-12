@@ -1,9 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { COLORS } from './uiColors';
 
 const loader = new GLTFLoader();
-const srgb = (hex: number | string) => new THREE.Color(hex as any).convertSRGBToLinear();
 
 export function createForest() {
   const group = new THREE.Group();
@@ -12,58 +10,39 @@ export function createForest() {
   const rocks = ['rock_largeA.glb', 'rock_smallC.glb'];
 
   trees.forEach((t) => scatter(t, 6, true));
-  rocks.forEach((r) => scatter(r, 4, false, COLORS.terrain));
+  rocks.forEach((r) => scatter(r, 4, false));
 
-  function scatter(file: string, count: number, cast: boolean, color?: number) {
+  function scatter(file: string, count: number, cast: boolean) {
     loader.load(`/assets/nature/${file}`, (gltf) => {
-      const instances: THREE.InstancedMesh[] = [];
-      gltf.scene.traverse((o: any) => {
-        if (!o.isMesh) return;
-
-        const name = (o.name || '').toLowerCase();
-        const clr = color !== undefined
-          ? color
-          : name.includes('trunk') || name.includes('stem') || name.includes('log')
-            ? COLORS.treeTrunk
-            : COLORS.treeTop;
-
-        const inst = new THREE.InstancedMesh(
-          o.geometry,
-          new THREE.MeshStandardMaterial({
-            color: srgb(clr),
-            metalness: 0,
-            roughness: 0.8,
-            flatShading: true,
-          }),
-          count,
-        );
-        inst.castShadow = cast;
-        instances.push(inst);
-      });
-
-      const matrix = new THREE.Matrix4();
-      const pos = new THREE.Vector3();
-      const quat = new THREE.Quaternion();
-      const scale = new THREE.Vector3();
-
+      ensureSRGB(gltf.scene);
       for (let i = 0; i < count; i++) {
+        const inst = gltf.scene.clone(true);
+        inst.traverse((o: any) => { if (o.isMesh) { o.castShadow = cast; o.receiveShadow = true; } });
         const x = Math.random() * 28 - 14;
         const z = Math.random() * 20 - 10;
         if (Math.hypot(x, z) < 6) { i--; continue; }
-        pos.set(x, 0, z);
-        quat.setFromEuler(new THREE.Euler(0, Math.random() * Math.PI * 2, 0));
+        inst.position.set(x, 0, z);
+        inst.rotation.y = Math.random() * Math.PI * 2;
         const s = 0.85 + Math.random() * 0.3;
-        scale.set(s, s, s);
-        matrix.compose(pos, quat, scale);
-        instances.forEach((inst) => inst.setMatrixAt(i, matrix));
-      }
-
-      instances.forEach((inst) => {
-        inst.instanceMatrix.needsUpdate = true;
+        inst.scale.setScalar(s);
         group.add(inst);
-      });
+      }
     });
   }
 
   return group;
+}
+
+function ensureSRGB(obj: THREE.Object3D) {
+  obj.traverse((o) => {
+    if (o instanceof THREE.Mesh) {
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      mats.forEach((m: any) => {
+        if (m.map) {
+          m.map.colorSpace = THREE.SRGBColorSpace;
+          m.map.anisotropy = 4;
+        }
+      });
+    }
+  });
 }

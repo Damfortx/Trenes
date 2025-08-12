@@ -48,6 +48,7 @@ const spawn = rails.getSpawnPose();
 const train = createTrain({
   random: true,
   pose: { position: spawn.position, yaw: spawn.yaw, railY: rails.railHeight },
+  carLength: rails.chordLen * 0.8,
 });
 scene.add(train);
 
