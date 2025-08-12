@@ -1,66 +1,63 @@
+// src/scene/forest.ts
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { COLORS } from './uiColors';
 
 const loader = new GLTFLoader();
-const srgb = (hex: number | string) => new THREE.Color(hex as any).convertSRGBToLinear();
+const rand = (a: number, b: number) => a + Math.random() * (b - a);
 
 export function createForest() {
   const group = new THREE.Group();
 
-  const trees = ['tree_pineTallA.glb', 'tree_oak.glb', 'tree_cone.glb'];
-  const rocks = ['rock_largeA.glb', 'rock_smallC.glb'];
+  // Selección contenida pero variada del Nature Kit
+  const TREES = [
+    'tree_oak.glb',
+    'tree_pineTallA.glb',
+    'tree_cone.glb',
+    'tree_default.glb',
+  ];
+  const ROCKS = [
+    'rock_largeA.glb',
+    'rock_smallC.glb',
+    'stone_largeA.glb',
+    'stone_smallC.glb',
+  ];
 
-  trees.forEach((t) => scatter(t, 6, true));
-  rocks.forEach((r) => scatter(r, 4, false, COLORS.terrain));
+  scatterMany(TREES, 14, true);
+  scatterMany(ROCKS, 12, false);
 
-  function scatter(file: string, count: number, cast: boolean, color?: number) {
-    loader.load(`/assets/nature/${file}`, (gltf) => {
-      const instances: THREE.InstancedMesh[] = [];
-      gltf.scene.traverse((o: any) => {
-        if (!o.isMesh) return;
+  function scatterMany(files: string[], countTotal: number, castShadow: boolean) {
+    files.forEach((file) => {
+      loader.load(`/assets/nature/${file}`, (gltf) => {
+        const source = gltf.scene;
+        // sRGB en texturas + shadows
+        source.traverse((o: any) => {
+          if (o.isMesh) {
+            const mats = Array.isArray(o.material) ? o.material : [o.material];
+            for (const m of mats) {
+              const mat = m as THREE.MeshStandardMaterial;
+              if (mat.map) { mat.map.colorSpace = THREE.SRGBColorSpace; mat.map.anisotropy = 4; }
+            }
+            o.castShadow = castShadow;
+            o.receiveShadow = true;
+          }
+        });
 
-        const name = (o.name || '').toLowerCase();
-        const clr = color !== undefined
-          ? color
-          : name.includes('trunk') || name.includes('stem') || name.includes('log')
-            ? COLORS.treeTrunk
-            : COLORS.treeTop;
+        // Dispersión con “reserva” circular (deja hueco al loop de vías)
+        const radiusReserve = 6.5;
+        for (let i = 0; i < Math.floor(countTotal / files.length); i++) {
+          const clone = source.clone(true);
+          let x = 0, z = 0;
+          do {
+            x = rand(-14, 14);
+            z = rand(-10, 10);
+          } while (Math.hypot(x, z) < radiusReserve);
 
-        const inst = new THREE.InstancedMesh(
-          o.geometry,
-          new THREE.MeshStandardMaterial({
-            color: srgb(clr),
-            metalness: 0,
-            roughness: 0.8,
-            flatShading: true,
-          }),
-          count,
-        );
-        inst.castShadow = cast;
-        instances.push(inst);
-      });
-
-      const matrix = new THREE.Matrix4();
-      const pos = new THREE.Vector3();
-      const quat = new THREE.Quaternion();
-      const scale = new THREE.Vector3();
-
-      for (let i = 0; i < count; i++) {
-        const x = Math.random() * 28 - 14;
-        const z = Math.random() * 20 - 10;
-        if (Math.hypot(x, z) < 6) { i--; continue; }
-        pos.set(x, 0, z);
-        quat.setFromEuler(new THREE.Euler(0, Math.random() * Math.PI * 2, 0));
-        const s = 0.85 + Math.random() * 0.3;
-        scale.set(s, s, s);
-        matrix.compose(pos, quat, scale);
-        instances.forEach((inst) => inst.setMatrixAt(i, matrix));
-      }
-
-      instances.forEach((inst) => {
-        inst.instanceMatrix.needsUpdate = true;
-        group.add(inst);
+          clone.position.set(x, 0, z);
+          clone.rotation.y = rand(0, Math.PI * 2);
+          const s = rand(0.85, 1.15);
+          clone.scale.setScalar(s);
+          group.add(clone);
+        }
       });
     });
   }

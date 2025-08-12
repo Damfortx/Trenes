@@ -1,12 +1,12 @@
+// src/main.ts
 import * as THREE from 'three';
 import { createCamera } from './scene/camera';
 import { createLights } from './scene/lights';
 import { createGround } from './scene/ground';
-import { createWater } from './scene/water';
-import { createCliffs } from './scene/cliffs';
 import { createForest } from './scene/forest';
 import { createRails } from './scene/rails';
 import { createTrain } from './scene/train';
+import { createWater } from './scene/water';
 
 const srgb = (hex: number | string) => new THREE.Color(hex as any).convertSRGBToLinear();
 
@@ -29,18 +29,18 @@ const { camera, controls } = createCamera(renderer);
 const { ambient, hemi, dir } = createLights();
 scene.add(ambient, hemi, dir);
 
+// Terreno con asset (verde original)
 const ground = createGround();
 scene.add(ground);
 
+// Agua igual que antes
 const water = createWater();
 scene.add(water.mesh);
 
-const cliffs = createCliffs();
-scene.add(cliffs);
+// Vegetación/rocas con materiales originales
+scene.add(createForest());
 
-const forest = createForest();
-scene.add(forest);
-
+// Vías y tren
 const rails = createRails();
 scene.add(rails.group);
 
@@ -48,6 +48,7 @@ const spawn = rails.getSpawnPose();
 const train = createTrain({
   random: true,
   pose: { position: spawn.position, yaw: spawn.yaw, railY: rails.railHeight },
+  carLength: rails.chordLen * 0.9, // ligeramente más corto que la cuerda de vía
 });
 scene.add(train);
 
@@ -57,11 +58,10 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-function animate(time: number) {
+function animate(t: number) {
   requestAnimationFrame(animate);
-  water.animate(time);
+  water.animate(t);
   controls.update();
   renderer.render(scene, camera);
 }
-
 animate(0);
