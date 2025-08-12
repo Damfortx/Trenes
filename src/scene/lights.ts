@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 
 export function createLights() {
-  const ambient = new THREE.AmbientLight(0xffffff, 0.45);
-  const hemi = new THREE.HemisphereLight(0xfdf7e8, 0xcbd3d0, 0.25);
+  const ambient = new THREE.AmbientLight(0xffffff, 0.55);
+  const hemi = new THREE.HemisphereLight(0xfdf7e8, 0xcbd3d0, 0.35);
 
-  const dir = new THREE.DirectionalLight(0xffffff, 1.0);
+  const dir = new THREE.DirectionalLight(0xffffff, 0.9);
   dir.position.set(20, 30, 15);
   dir.castShadow = true;
   dir.shadow.mapSize.set(2048, 2048);

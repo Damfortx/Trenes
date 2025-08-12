@@ -27,7 +27,7 @@ export function createGround() {
   geo.computeVertexNormals();
   geo.rotateX(-Math.PI / 2);
   const mat = new THREE.MeshStandardMaterial({
-    color: srgb(COLORS.grass), metalness: 0, roughness: 0.85,
+    color: srgb(0xD7F2A2), metalness: 0, roughness: 0.85,
   });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.receiveShadow = true;

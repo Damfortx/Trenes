@@ -23,7 +23,7 @@ document.getElementById('app')!.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 scene.background = srgb(0xf6f6f2);
-scene.fog = new THREE.Fog(srgb(0xf6f6f2), 40, 80);
+scene.fog = new THREE.Fog(srgb(0xf6f6f2), 55, 100);
 
 const { camera, controls } = createCamera(renderer);
 const { ambient, hemi, dir } = createLights();
