@@ -59,7 +59,7 @@ export function createForest() {
         if (Math.hypot(x, z) < 6) { i--; continue; }
         pos.set(x, 0, z);
         quat.setFromEuler(new THREE.Euler(0, Math.random() * Math.PI * 2, 0));
-        const s = 0.8 + Math.random() * 0.4;
+        const s = 0.85 + Math.random() * 0.3;
         scale.set(s, s, s);
         matrix.compose(pos, quat, scale);
         instances.forEach((inst) => inst.setMatrixAt(i, matrix));

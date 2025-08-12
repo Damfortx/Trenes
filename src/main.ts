@@ -9,15 +9,20 @@ import { createCliffs } from './scene/cliffs';
 import { createForest } from './scene/forest';
 import { COLORS } from './scene/uiColors';
 
+const srgb = (hex: number) => new THREE.Color(hex).convertSRGBToLinear();
+
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
 
 document.getElementById('app')!.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(COLORS.terrain);
+scene.background = srgb(COLORS.terrain);
 
 const { camera, controls } = createCamera(renderer);
 const { ambient, dir } = createLights();
@@ -75,14 +80,27 @@ function createTrack() {
     }
   });
 
-  gltfLoader.load('/assets/rails/railroad-rail-straight.glb', (gltf) => {
-    const straight = gltf.scene;
-    straight.scale.setScalar(scale);
-    straight.position.set(0, 0, 0);
-    group.add(straight);
-  });
+  const sleeperGeo = new THREE.BoxGeometry(0.9, 0.18, 0.08);
+  const sleeperMat = new THREE.MeshLambertMaterial({ color: srgb(COLORS.sleeper) });
+  const sleeperSpacing = 0.5;
+  const sleeperCount = Math.floor((Math.PI * 2 * radius) / sleeperSpacing);
+  const sleepers = new THREE.InstancedMesh(sleeperGeo, sleeperMat, sleeperCount);
+  const matrix = new THREE.Matrix4();
+  const pos = new THREE.Vector3();
+  const quat = new THREE.Quaternion();
+  const scaleVec = new THREE.Vector3(1, 1, 1);
+  for (let i = 0; i < sleeperCount; i++) {
+    const angle = (i / sleeperCount) * Math.PI * 2;
+    pos.set(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
+    quat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), -angle);
+    matrix.compose(pos, quat, scaleVec);
+    sleepers.setMatrixAt(i, matrix);
+  }
+  sleepers.castShadow = true;
+  sleepers.instanceMatrix.needsUpdate = true;
+  group.add(sleepers);
 
-  group.position.y = 0.05;
+  group.position.y = 0.06;
   return group;
 }
 
@@ -107,7 +125,7 @@ function createTrain() {
 function repaint(root: THREE.Object3D) {
   root.traverse((o) => {
     if (o instanceof THREE.Mesh) {
-      o.material = new THREE.MeshLambertMaterial({ color: COLORS.trainRed });
+      o.material = new THREE.MeshLambertMaterial({ color: srgb(COLORS.trainRed) });
       o.castShadow = true;
     }
   });
