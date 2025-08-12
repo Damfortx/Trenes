@@ -1,15 +1,17 @@
 // scene/train.ts
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { COLORS } from './uiColors';
-
-const loader = new GLTFLoader();
-const srgb = (hex: number | string) => new THREE.Color(hex as any).convertSRGBToLinear();
+import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 
 type Pose = { position?: THREE.Vector3; yaw?: number; railY?: number };
-type TrainOpts = { random?: boolean; pose?: Pose };
+type TrainOpts = { random?: boolean; pose?: Pose; carLength: number };
 
-const HEADS = [
+const gltfLoader = new GLTFLoader();
+const mtlLoader = new MTLLoader();
+const objLoader = new OBJLoader();
+
+const K_HEADS = [
   'train-electric-city-a.glb',
   'train-diesel-a.glb',
   'train-locomotive-a.glb',
@@ -18,7 +20,7 @@ const HEADS = [
   'train-tram-modern.glb',
 ];
 
-const CARS = [
+const K_CARS = [
   'train-electric-city-b.glb',
   'train-electric-city-c.glb',
   'train-carriage-box.glb',
@@ -28,57 +30,91 @@ const CARS = [
   'train-carriage-flatbed.glb',
 ];
 
-const CAR_LEN = 1.6;   // más corto que la cuerda de vía (TILE=2.0)
-const GAP     = 0.03;  // separación mínima
-const SCALE_MIN = 0.05, SCALE_MAX = 5.0; // seguridad
+const Q_HEADS = [
+  { obj: 'Locomotive_Front.obj', mtl: 'Locomotive_Front.mtl' },
+  { obj: 'CargoTrain_Front.obj', mtl: 'CargoTrain_Front.mtl' },
+  { obj: 'HighSpeed_Front.obj', mtl: 'HighSpeed_Front.mtl' },
+];
+
+const Q_CARS = [
+  { obj: 'Locomotive_Wagon.obj', mtl: 'Locomotive_Wagon.mtl' },
+  { obj: 'Locomotive_PassengerWagon.obj', mtl: 'Locomotive_PassengerWagon.mtl' },
+  { obj: 'CargoTrain_Wagon.obj', mtl: 'CargoTrain_Wagon.mtl' },
+  { obj: 'CargoTrain_WagonEmpty.obj', mtl: 'CargoTrain_WagonEmpty.mtl' },
+  { obj: 'CargoTrain_WagonOpenContainer.obj', mtl: 'CargoTrain_WagonOpenContainer.mtl' },
+  { obj: 'CargoTrain_Container.obj', mtl: 'CargoTrain_Container.mtl' },
+  { obj: 'HighSpeed_Wagon.obj', mtl: 'HighSpeed_Wagon.mtl' },
+];
+
+const GAP = 0.03;
+const SCALE_MIN = 0.05, SCALE_MAX = 5.0;
 
 function pick<T>(arr: T[]) { return arr[Math.floor(Math.random() * arr.length)]; }
 
-export function createTrain(opts: TrainOpts = {}) {
+export function createTrain(opts: TrainOpts) {
   const group = new THREE.Group();
   const numCars = opts.random ? 1 + Math.floor(Math.random() * 3) : 2;
-  const files = [
-    (opts.random ? pick(HEADS) : 'train-electric-city-a.glb'),
-    ...Array.from({ length: numCars }, () => (opts.random ? pick(CARS) : 'train-carriage-box.glb')),
-  ];
+  const useKenney = opts.random ? Math.random() < 0.5 : true;
 
-  let loaded = 0;
-  const expected = files.length;
+  const files = useKenney
+    ? [opts.random ? pick(K_HEADS) : K_HEADS[0], ...Array.from({ length: numCars }, () => opts.random ? pick(K_CARS) : K_CARS[0])]
+    : [opts.random ? pick(Q_HEADS) : Q_HEADS[0], ...Array.from({ length: numCars }, () => opts.random ? pick(Q_CARS) : Q_CARS[0])];
 
-  files.forEach((file, i) => {
-    loader.load(`/assets/rails/${file}`, (gltf) => {
-      const obj = gltf.scene;
+  const loaders = files.map((f) => useKenney ? loadGLB(`/assets/rails/${f as string}`) : loadOBJ(f as any));
 
-      obj.traverse((o: any) => {
-        if (!o.isMesh) return;
-        const mat = (o.material as THREE.MeshStandardMaterial).clone();
-        if (mat.map) mat.map.colorSpace = THREE.SRGBColorSpace;
-        mat.metalness = 0; mat.roughness = 0.6; mat.color = srgb(COLORS.trainRed);
-        o.material = mat; o.castShadow = true;
-      });
-
+  Promise.all(loaders).then((parts) => {
+    parts.forEach((obj, i) => {
+      prepareObj(obj);
       obj.updateWorldMatrix(true, true);
       const box = new THREE.Box3().setFromObject(obj);
       const size = box.getSize(new THREE.Vector3());
-      const length = Math.max(size.x, size.z) || 1; // seguridad
-      const scl = THREE.MathUtils.clamp(CAR_LEN / length, SCALE_MIN, SCALE_MAX);
+      const length = Math.max(size.x, size.z) || 1;
+      const scl = THREE.MathUtils.clamp(opts.carLength / length, SCALE_MIN, SCALE_MAX);
       obj.scale.setScalar(scl);
-
-      // encadena los vagones detrás de la cabeza
-      obj.position.z = -i * (CAR_LEN + GAP);
+      obj.position.z = -i * (opts.carLength + GAP);
       group.add(obj);
-
-      if (++loaded === expected) {
-        // Apoyo vertical sobre la vía, y pose final
-        const bb = new THREE.Box3().setFromObject(group);
-        const railY = (opts.pose?.railY ?? 0.08);
-        const clearance = 0.02;
-        group.position.y += (railY + clearance) - bb.min.y;
-        if (opts.pose?.yaw !== undefined) group.rotation.y = opts.pose.yaw;
-        if (opts.pose?.position) group.position.add(opts.pose.position);
-      }
     });
+
+    const bb = new THREE.Box3().setFromObject(group);
+    const railY = opts.pose?.railY ?? 0.08;
+    const clearance = 0.02;
+    group.position.y += (railY + clearance) - bb.min.y;
+    if (opts.pose?.yaw !== undefined) group.rotation.y = opts.pose.yaw;
+    if (opts.pose?.position) group.position.add(opts.pose.position);
   });
 
   return group;
+}
+
+function loadGLB(path: string): Promise<THREE.Object3D> {
+  return new Promise((resolve) => {
+    gltfLoader.load(path, (gltf) => resolve(gltf.scene));
+  });
+}
+
+function loadOBJ(files: { obj: string; mtl: string }): Promise<THREE.Object3D> {
+  return new Promise((resolve) => {
+    mtlLoader.setResourcePath('/assets/trains/');
+    mtlLoader.setPath('/assets/trains/');
+    mtlLoader.load(files.mtl, (materials) => {
+      materials.preload();
+      objLoader.setMaterials(materials);
+      objLoader.setPath('/assets/trains/');
+      objLoader.load(files.obj, (obj) => resolve(obj));
+    });
+  });
+}
+
+function prepareObj(obj: THREE.Object3D) {
+  obj.traverse((o: any) => {
+    if (!o.isMesh) return;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    mats.forEach((m: any) => {
+      if (m.map) {
+        m.map.colorSpace = THREE.SRGBColorSpace;
+        m.map.anisotropy = 4;
+      }
+    });
+    o.castShadow = true;
+  });
 }

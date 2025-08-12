@@ -32,16 +32,12 @@ export function createRails() {
   function preparePiece(obj: THREE.Object3D) {
     obj.traverse((o: any) => {
       if (!o.isMesh) return;
-      const name = (o.name || '').toLowerCase();
-      const color =
-        name.includes('rail')  ? 0x6F6F6F :      // metal
-        name.includes('sleep') ? 0x8B5A2B :      // durmientes
-                                0x8B5A2B;
-      o.material = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(color).convertSRGBToLinear(),
-        metalness: 0,
-        roughness: 0.6,
-        flatShading: true,
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      mats.forEach((m: any) => {
+        if (m.map) {
+          m.map.colorSpace = THREE.SRGBColorSpace;
+          m.map.anisotropy = 4;
+        }
       });
       o.castShadow = true; o.receiveShadow = true;
     });
@@ -82,7 +78,7 @@ export function createRails() {
   async function loadFirstExisting(paths: string[]) {
     for (const p of paths) {
       try {
-        const gltf = await new Promise<THREE.Object3D | null>((resolve, reject) => {
+        const gltf = await new Promise<THREE.Object3D | null>((resolve) => {
           loader.load(p, (g) => resolve(g.scene), undefined, () => resolve(null));
         });
         if (gltf) return gltf;
@@ -95,5 +91,6 @@ export function createRails() {
     group,
     getSpawnPose: () => poseAt(0),
     railHeight: Y_RAIL,
+    chordLen: chord,
   };
 }
