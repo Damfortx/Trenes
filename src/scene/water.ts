@@ -16,7 +16,7 @@ export function createWater() {
   const texture = new THREE.CanvasTexture(canvas);
   texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
   texture.colorSpace = THREE.SRGBColorSpace;
-  const material = new THREE.MeshStandardMaterial({ color: srgb(COLORS.water), transparent: true, opacity: 0.9, map: texture });
+  const material = new THREE.MeshStandardMaterial({ color: srgb(COLORS.water), transparent: true, opacity: 0.92, map: texture });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.rotation.x = -Math.PI / 2;
   let x = 0, z = 0;
@@ -28,7 +28,7 @@ export function createWater() {
   mesh.receiveShadow = true;
 
   const animate = (t: number) => {
-    mesh.material.opacity = 0.9 + Math.sin(t * 0.001) * 0.02;
+    mesh.material.opacity = 0.92 + Math.sin(t * 0.001) * 0.02;
     texture.offset.set(t * 0.00005, t * 0.00007);
   };
 

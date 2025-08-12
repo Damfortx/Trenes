@@ -5,44 +5,43 @@ import { COLORS } from './uiColors';
 const loader = new GLTFLoader();
 const srgb = (hex: number) => new THREE.Color(hex).convertSRGBToLinear();
 
-export function createCliffs() {
+export function createTrain() {
   const group = new THREE.Group();
-  loader.load('/assets/nature/cliff_block_stone.glb', (gltf) => {
-    const base = gltf.scene;
-    ensureSRGB(base);
-    const heights = [0.8, 0.7, 0.6];
-    let y = 0;
-    heights.forEach((h) => {
-      const level = base.clone(true);
-      level.traverse((o) => {
+  const files = ['train-electric-city-a.glb', 'train-carriage-box.glb', 'train-carriage-wood.glb'];
+
+  files.forEach((file, i) => {
+    loader.load(`/assets/rails/${file}`, (gltf) => {
+      const obj = gltf.scene;
+      ensureSRGB(obj);
+      obj.traverse((o) => {
         if ((o as THREE.Mesh).isMesh) {
           const mesh = o as THREE.Mesh;
           const mat = (mesh.material as THREE.MeshStandardMaterial).clone();
           if (mat.map) mat.map.colorSpace = THREE.SRGBColorSpace;
-          mat.color = srgb(COLORS.terrain);
+          mat.color = srgb(COLORS.trainRed);
           mesh.material = mat;
           mesh.castShadow = true;
-          mesh.receiveShadow = true;
         }
       });
-      const box = new THREE.Box3().setFromObject(level);
-      const size = box.getSize(new THREE.Vector3());
-      const scale = h / size.y;
-      level.scale.setScalar(scale);
-      level.position.y = y + h / 2;
-      y += h;
-      group.add(level);
+      const box = new THREE.Box3().setFromObject(obj);
+      const length = box.getSize(new THREE.Vector3()).z;
+      const scale = 2.6 / length;
+      obj.scale.setScalar(scale);
+      obj.position.z = -i * 2.6;
+      group.add(obj);
     });
   });
-  group.position.set(12, 0, 4);
+
+  group.position.set(8, 0.06, 0);
   return group;
 }
 
 function ensureSRGB(obj: THREE.Object3D) {
   obj.traverse((o) => {
-    if (o instanceof THREE.Mesh) {
-      const mats = Array.isArray(o.material) ? o.material : [o.material];
-      mats.forEach((m) => {
+    if ((o as THREE.Mesh).isMesh) {
+      const mesh = o as THREE.Mesh;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      mats.forEach((m: THREE.Material) => {
         const mat = m as THREE.MeshStandardMaterial;
         if (mat.map) mat.map.colorSpace = THREE.SRGBColorSpace;
       });
