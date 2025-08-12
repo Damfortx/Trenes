@@ -15,6 +15,7 @@ export function createWater() {
   ctx.fillRect(1, 1, 1, 1);
   const texture = new THREE.CanvasTexture(canvas);
   texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.colorSpace = THREE.SRGBColorSpace;
   const material = new THREE.MeshStandardMaterial({ color: srgb(COLORS.water), transparent: true, opacity: 0.9, map: texture });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.rotation.x = -Math.PI / 2;

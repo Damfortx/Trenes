@@ -43,7 +43,9 @@ export function createForest() {
 
       const instances = meshes.map((m) => {
         const material = Array.isArray(m.material) ? m.material[0] : m.material;
-        const inst = new THREE.InstancedMesh(m.geometry, material as THREE.Material, count);
+        const mat = material as THREE.MeshStandardMaterial;
+        if (mat.map) mat.map.colorSpace = THREE.SRGBColorSpace;
+        const inst = new THREE.InstancedMesh(m.geometry, mat, count);
         inst.castShadow = true;
         return inst;
       });
