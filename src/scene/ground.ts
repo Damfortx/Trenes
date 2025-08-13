@@ -1,21 +1,20 @@
 // src/scene/ground.ts
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-const srgb = (hex: number | string) => new THREE.Color(hex as any).convertSRGBToLinear();
-
-// Dimensiones “tablero” (no cambies: otros módulos asumen esto)
 const WIDTH = 32;
 const DEPTH = 24;
 const BASE_H = 1;
 
+// Verde claro tipo mockups (sin texturita repetida)
+const GRASS_HEX = 0xDFF6A1; // si lo quieres aún más claro: 0xE8FAB5
+
 export function createGround() {
   const group = new THREE.Group();
 
-  // Base inferior (bisel gris) para el look diorama
+  // Base tipo diorama (beige)
   const baseGeo = new THREE.BoxGeometry(WIDTH + 2, BASE_H, DEPTH + 2);
   const baseMat = new THREE.MeshStandardMaterial({
-    color: srgb(0xdad9d6),
+    color: new THREE.Color(0xF7F7F0).convertSRGBToLinear(),
     metalness: 0,
     roughness: 0.9,
   });
@@ -24,39 +23,19 @@ export function createGround() {
   base.receiveShadow = true;
   group.add(base);
 
-  // Terreno del Kenney Nature Kit (verde con textura/material del pack)
-  const loader = new GLTFLoader();
-  loader.load('/assets/nature/platform_grass.glb', (gltf) => {
-    const mesh = gltf.scene;
-    // Asegura sRGB para cualquier textura encontrada
-    mesh.traverse((o: any) => {
-      if (o.isMesh) {
-        const mats = Array.isArray(o.material) ? o.material : [o.material];
-        for (const m of mats) {
-          const mat = m as THREE.MeshStandardMaterial;
-          if (mat.map) {
-            mat.map.colorSpace = THREE.SRGBColorSpace;
-            mat.map.anisotropy = 4;
-          }
-        }
-        o.castShadow = false;
-        o.receiveShadow = true;
-      }
-    });
+// Plano de césped (solo color)
+const planeGeo = new THREE.PlaneGeometry(WIDTH, DEPTH, 1, 1);
+planeGeo.rotateX(-Math.PI / 2);
+const planeMat = new THREE.MeshStandardMaterial({
+  color: new THREE.Color(0xDFF6A1).convertSRGBToLinear(), // verde claro
+  metalness: 0,
+  roughness: 0.88,
+});
+const grass = new THREE.Mesh(planeGeo, planeMat);
+grass.position.y = 0.001;           // << levanta 1 mm para evitar z-fighting
+grass.receiveShadow = true;
+group.add(grass);
 
-    // Normaliza a WIDTH×DEPTH
-    mesh.updateWorldMatrix(true, true);
-    const box = new THREE.Box3().setFromObject(mesh);
-    const size = box.getSize(new THREE.Vector3());
-    const sx = WIDTH / (size.x || 1);
-    const sz = DEPTH / (size.z || 1);
-    mesh.scale.set(sx, 1, sz);
-    mesh.position.y = 0; // apoyado sobre la base
-    group.add(mesh);
-  });
 
   return group;
 }
-
-// Exporta dimensiones para otros módulos si lo necesitas en el futuro
-export const GROUND_SIZE = { width: WIDTH, depth: DEPTH };

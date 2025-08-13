@@ -7,6 +7,8 @@ import { createForest } from './scene/forest';
 import { createRails } from './scene/rails';
 import { createTrain } from './scene/train';
 import { createWater } from './scene/water';
+import { enableTrackEditor } from './ui/trackEditor';
+import { RAIL_UNIT } from './scene/rails';
 
 const srgb = (hex: number | string) => new THREE.Color(hex as any).convertSRGBToLinear();
 
@@ -18,10 +20,11 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.25;
-
+ 
 document.getElementById('app')!.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
+
 scene.background = srgb(0xf6f6f2);
 scene.fog = new THREE.Fog(srgb(0xf6f6f2), 55, 100);
 
@@ -42,7 +45,15 @@ scene.add(createForest());
 
 // Vías y tren
 const rails = createRails();
+ 
 scene.add(rails.group);
+// Paleta + editor de colocación de vías (snap a rejilla del módulo)
+enableTrackEditor({
+  scene,
+  camera,
+  renderer,
+  grid: { step: RAIL_UNIT, y: rails.railHeight }
+});
 
 const spawn = rails.getSpawnPose();
 const train = createTrain({

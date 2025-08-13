@@ -1,14 +1,16 @@
 
 /* ===== FILE: main.ts ===== */
+// src/main.ts
 import * as THREE from 'three';
 import { createCamera } from './scene/camera';
 import { createLights } from './scene/lights';
 import { createGround } from './scene/ground';
-import { createWater } from './scene/water';
-import { createCliffs } from './scene/cliffs';
 import { createForest } from './scene/forest';
 import { createRails } from './scene/rails';
 import { createTrain } from './scene/train';
+import { createWater } from './scene/water';
+import { enableTrackEditor } from './ui/trackEditor';
+import { RAIL_UNIT } from './scene/rails';
 
 const srgb = (hex: number | string) => new THREE.Color(hex as any).convertSRGBToLinear();
 
@@ -20,10 +22,11 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.25;
-
+ 
 document.getElementById('app')!.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
+
 scene.background = srgb(0xf6f6f2);
 scene.fog = new THREE.Fog(srgb(0xf6f6f2), 55, 100);
 
@@ -31,25 +34,34 @@ const { camera, controls } = createCamera(renderer);
 const { ambient, hemi, dir } = createLights();
 scene.add(ambient, hemi, dir);
 
+// Terreno con asset (verde original)
 const ground = createGround();
 scene.add(ground);
 
+// Agua igual que antes
 const water = createWater();
 scene.add(water.mesh);
 
-const cliffs = createCliffs();
-scene.add(cliffs);
+// Vegetación/rocas con materiales originales
+scene.add(createForest());
 
-const forest = createForest();
-scene.add(forest);
-
+// Vías y tren
 const rails = createRails();
+ 
 scene.add(rails.group);
+// Paleta + editor de colocación de vías (snap a rejilla del módulo)
+enableTrackEditor({
+  scene,
+  camera,
+  renderer,
+  grid: { step: RAIL_UNIT, y: rails.railHeight }
+});
 
 const spawn = rails.getSpawnPose();
 const train = createTrain({
   random: true,
   pose: { position: spawn.position, yaw: spawn.yaw, railY: rails.railHeight },
+  carLength: rails.chordLen * 0.9, // ligeramente más corto que la cuerda de vía
 });
 scene.add(train);
 
@@ -59,13 +71,12 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-function animate(time: number) {
+function animate(t: number) {
   requestAnimationFrame(animate);
-  water.animate(time);
+  water.animate(t);
   controls.update();
   renderer.render(scene, camera);
 }
-
 animate(0);
 
 
@@ -148,69 +159,66 @@ function ensureSRGB(obj: THREE.Object3D) {
 
 
 /* ===== FILE: scene/forest.ts ===== */
+// src/scene/forest.ts
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { COLORS } from './uiColors';
 
 const loader = new GLTFLoader();
-const srgb = (hex: number | string) => new THREE.Color(hex as any).convertSRGBToLinear();
+const rand = (a: number, b: number) => a + Math.random() * (b - a);
 
 export function createForest() {
   const group = new THREE.Group();
 
-  const trees = ['tree_pineTallA.glb', 'tree_oak.glb', 'tree_cone.glb'];
-  const rocks = ['rock_largeA.glb', 'rock_smallC.glb'];
+  // Selección contenida pero variada del Nature Kit
+  const TREES = [
+    'tree_oak.glb',
+    'tree_pineTallA.glb',
+    'tree_cone.glb',
+    'tree_default.glb',
+  ];
+  const ROCKS = [
+    'rock_largeA.glb',
+    'rock_smallC.glb',
+    'stone_largeA.glb',
+    'stone_smallC.glb',
+  ];
 
-  trees.forEach((t) => scatter(t, 6, true));
-  rocks.forEach((r) => scatter(r, 4, false, COLORS.terrain));
+  scatterMany(TREES, 14, true);
+  scatterMany(ROCKS, 12, false);
 
-  function scatter(file: string, count: number, cast: boolean, color?: number) {
-    loader.load(`/assets/nature/${file}`, (gltf) => {
-      const instances: THREE.InstancedMesh[] = [];
-      gltf.scene.traverse((o: any) => {
-        if (!o.isMesh) return;
+  function scatterMany(files: string[], countTotal: number, castShadow: boolean) {
+    files.forEach((file) => {
+      loader.load(`/assets/nature/${file}`, (gltf) => {
+        const source = gltf.scene;
+        // sRGB en texturas + shadows
+        source.traverse((o: any) => {
+          if (o.isMesh) {
+            const mats = Array.isArray(o.material) ? o.material : [o.material];
+            for (const m of mats) {
+              const mat = m as THREE.MeshStandardMaterial;
+              if (mat.map) { mat.map.colorSpace = THREE.SRGBColorSpace; mat.map.anisotropy = 4; }
+            }
+            o.castShadow = castShadow;
+            o.receiveShadow = true;
+          }
+        });
 
-        const name = (o.name || '').toLowerCase();
-        const clr = color !== undefined
-          ? color
-          : name.includes('trunk') || name.includes('stem') || name.includes('log')
-            ? COLORS.treeTrunk
-            : COLORS.treeTop;
+        // Dispersión con “reserva” circular (deja hueco al loop de vías)
+        const radiusReserve = 6.5;
+        for (let i = 0; i < Math.floor(countTotal / files.length); i++) {
+          const clone = source.clone(true);
+          let x = 0, z = 0;
+          do {
+            x = rand(-14, 14);
+            z = rand(-10, 10);
+          } while (Math.hypot(x, z) < radiusReserve);
 
-        const inst = new THREE.InstancedMesh(
-          o.geometry,
-          new THREE.MeshStandardMaterial({
-            color: srgb(clr),
-            metalness: 0,
-            roughness: 0.8,
-            flatShading: true,
-          }),
-          count,
-        );
-        inst.castShadow = cast;
-        instances.push(inst);
-      });
-
-      const matrix = new THREE.Matrix4();
-      const pos = new THREE.Vector3();
-      const quat = new THREE.Quaternion();
-      const scale = new THREE.Vector3();
-
-      for (let i = 0; i < count; i++) {
-        const x = Math.random() * 28 - 14;
-        const z = Math.random() * 20 - 10;
-        if (Math.hypot(x, z) < 6) { i--; continue; }
-        pos.set(x, 0, z);
-        quat.setFromEuler(new THREE.Euler(0, Math.random() * Math.PI * 2, 0));
-        const s = 0.85 + Math.random() * 0.3;
-        scale.set(s, s, s);
-        matrix.compose(pos, quat, scale);
-        instances.forEach((inst) => inst.setMatrixAt(i, matrix));
-      }
-
-      instances.forEach((inst) => {
-        inst.instanceMatrix.needsUpdate = true;
-        group.add(inst);
+          clone.position.set(x, 0, z);
+          clone.rotation.y = rand(0, Math.PI * 2);
+          const s = rand(0.85, 1.15);
+          clone.scale.setScalar(s);
+          group.add(clone);
+        }
       });
     });
   }
@@ -220,78 +228,63 @@ export function createForest() {
 
 
 /* ===== FILE: scene/ground.ts ===== */
+// src/scene/ground.ts
 import * as THREE from 'three';
-import { COLORS } from './uiColors';
 
-const srgb = (hex: number | string) => new THREE.Color(hex as any).convertSRGBToLinear();
+const WIDTH = 32;
+const DEPTH = 24;
+const BASE_H = 1;
+
+// Verde claro tipo mockups (sin texturita repetida)
+const GRASS_HEX = 0xDFF6A1; // si lo quieres aún más claro: 0xE8FAB5
 
 export function createGround() {
-  const width = 32;
-  const depth = 24;
-  const baseHeight = 1;
   const group = new THREE.Group();
 
-  const baseGeo = new THREE.BoxGeometry(width + 2, baseHeight, depth + 2);
+  // Base tipo diorama (beige)
+  const baseGeo = new THREE.BoxGeometry(WIDTH + 2, BASE_H, DEPTH + 2);
   const baseMat = new THREE.MeshStandardMaterial({
-    color: srgb(COLORS.terrain), metalness: 0, roughness: 0.85,
+    color: new THREE.Color(0xF7F7F0).convertSRGBToLinear(),
+    metalness: 0,
+    roughness: 0.9,
   });
   const base = new THREE.Mesh(baseGeo, baseMat);
-  base.position.y = -baseHeight / 2;
+  base.position.y = -BASE_H / 2;
   base.receiveShadow = true;
   group.add(base);
 
-  const geo = new THREE.PlaneGeometry(width, depth, 32, 24);
-  const pos = geo.attributes.position as THREE.BufferAttribute;
-  for (let i = 0; i < pos.count; i++) {
-    const y = (Math.random() - 0.5) * 0.05;
-    pos.setY(i, y);
-  }
-  geo.computeVertexNormals();
-  geo.rotateX(-Math.PI / 2);
-// scene/ground.ts (dentro de createGround, tras crear el geo y antes del material)
-function tinyGrassTexture() {
-  const c = document.createElement('canvas');
-  c.width = c.height = 4;
-  const ctx = c.getContext('2d')!;
-  // parches suaves
-  const g1 = '#e8fab5', g2 = '#dff6a1', g3 = '#e4f9b0';
-  ctx.fillStyle = g1; ctx.fillRect(0,0,4,4);
-  ctx.fillStyle = g2; ctx.fillRect(0,0,2,2);
-  ctx.fillStyle = g3; ctx.fillRect(2,2,2,2);
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(16, 12); // tablero 32×24 -> 2 texels por unidad
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-const mat = new THREE.MeshStandardMaterial({
-  color: srgb(0xDFF6A1),
+// Plano de césped (solo color)
+const planeGeo = new THREE.PlaneGeometry(WIDTH, DEPTH, 1, 1);
+planeGeo.rotateX(-Math.PI / 2);
+const planeMat = new THREE.MeshStandardMaterial({
+  color: new THREE.Color(0xDFF6A1).convertSRGBToLinear(), // verde claro
   metalness: 0,
-  roughness: 0.85,
-  map: tinyGrassTexture(),   // << añade variación sutil
+  roughness: 0.88,
 });
+const grass = new THREE.Mesh(planeGeo, planeMat);
+grass.position.y = 0.001;           // << levanta 1 mm para evitar z-fighting
+grass.receiveShadow = true;
+group.add(grass);
 
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.receiveShadow = true;
-  group.add(mesh);
 
   return group;
 }
 
 
 /* ===== FILE: scene/lights.ts ===== */
+// src/scene/lights.ts
 import * as THREE from 'three';
 
 export function createLights() {
   const ambient = new THREE.AmbientLight(0xffffff, 0.55);
-  const hemi = new THREE.HemisphereLight(0xfdf7e8, 0xcbd3d0, 0.35);
+  const hemi = new THREE.HemisphereLight(0xf7f1e3, 0xcbd3d0, 0.35);
 
   const dir = new THREE.DirectionalLight(0xffffff, 0.9);
   dir.position.set(20, 30, 15);
   dir.castShadow = true;
   dir.shadow.mapSize.set(2048, 2048);
   dir.shadow.bias = -0.00015;
+
   const cam = dir.shadow.camera as THREE.OrthographicCamera;
   cam.left = cam.bottom = -40;
   cam.right = cam.top = 40;
@@ -301,119 +294,556 @@ export function createLights() {
 }
 
 
-/* ===== FILE: scene/rails.ts ===== */
-// scene/rails.ts
-import * as THREE from 'three';
+/* ===== FILE: scene/loaders.ts ===== */
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-const loader = new GLTFLoader();
+export function railsLoader() {
+  const l = new GLTFLoader();
+  // Las texturas de los GLB del Train Kit se resuelven relativo a esta carpeta:
+  l.setPath('/assets/rails/');          // para los .glb
+  l.setResourcePath('/assets/rails/');  // para dependencias tipo "Textures/colormap.png"
+  return l;
+}
 
-const TILE = 2.0;      // 1 recta = 2u
-const Y_RAIL = 0.08;   // un poco más alto para que no se pierda contra el suelo
-const SEGMENTS = 36;   // círculo más suave
-const R_FACTOR = 1.30; // círculo más grande que antes
+export function natureLoader() {
+  const l = new GLTFLoader();
+  l.setPath('/assets/nature/');
+  l.setResourcePath('/assets/nature/');
+  return l;
+}
+
+
+/* ===== FILE: scene/railLibrary.ts ===== */
+// src/scene/railLibrary.ts
+import * as THREE from 'three';
+import { railsLoader } from './loaders';
+import { RAIL_UNIT } from './rails';
+
+const loader = railsLoader();
+
+export type RailKind = 'straight' | 'curve90' | 'tjunction' | 'cross';
+export type CacheEntry = {
+  wrap: THREE.Object3D;
+  span: number;
+  kind: RailKind;
+  ports: { p: THREE.Vector2; d: THREE.Vector2 }[];
+};
+
+const cache = new Map<RailKind, CacheEntry>();
+
+/* ---------- utils ---------- */
+function ensureSRGBAndShadows(o: THREE.Object3D) {
+  o.traverse((m: any) => {
+    if (!m?.isMesh) return;
+    m.castShadow = true; m.receiveShadow = true;
+    const mats = Array.isArray(m.material) ? m.material : [m.material];
+    mats.forEach((mat: any) => { if (mat?.map) mat.map.colorSpace = THREE.SRGBColorSpace; });
+  });
+}
+
+function normalizeToUnit(src: THREE.Object3D, forceLongAxisZ = false) {
+  ensureSRGBAndShadows(src);
+  src.updateWorldMatrix(true, true);
+  const b = new THREE.Box3().setFromObject(src);
+  const size = b.getSize(new THREE.Vector3());
+  const center = b.getCenter(new THREE.Vector3());
+  const long = Math.max(size.x, size.z) || 1;
+  const scale = THREE.MathUtils.clamp(RAIL_UNIT / long, 0.02, 5);
+
+  const wrap = new THREE.Group();
+  src.position.add(center.multiplyScalar(-scale));
+  src.scale.setScalar(scale);
+  wrap.add(src);
+
+  if (forceLongAxisZ && size.x >= size.z) wrap.rotation.y = Math.PI / 2;
+  wrap.position.y = 0;
+
+  wrap.updateWorldMatrix(true, true);
+  const bb = new THREE.Box3().setFromObject(wrap);
+  const s = bb.getSize(new THREE.Vector3());
+  const span = Math.max(s.x, s.z);
+  return { wrap, span, size: s };
+}
+
+async function loadRawOne(name: string): Promise<THREE.Object3D | null> {
+  return await new Promise(res => loader.load(name, g => res(g.scene), undefined, () => res(null)));
+}
+async function loadRaw(cands: string[]) {
+  for (const p of cands) {
+    const s = await loadRawOne(p);
+    if (s) return { scene: s, name: p };
+  }
+  return null;
+}
+
+function collectXZPoints(obj: THREE.Object3D) {
+  const pts: THREE.Vector2[] = [];
+  obj.updateWorldMatrix(true, true);
+  obj.traverse((m: any) => {
+    if (!m?.isMesh || !m.geometry) return;
+    const pos = (m.geometry as THREE.BufferGeometry).getAttribute('position');
+    if (!pos) return;
+    const v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      v.set(pos.getX(i), pos.getY(i), pos.getZ(i));
+      m.localToWorld(v);
+      pts.push(new THREE.Vector2(v.x, v.z));
+    }
+  });
+  return pts;
+}
+
+/** rotación 0..3 que deja la curva como esquina –X → +Z */
+function rotationIdxForCorner(allXZ: THREE.Vector2[], span: number) {
+  const rotV = (v: THREE.Vector2, k: number) => {
+    const a = k * (Math.PI/2), c = Math.cos(a), s = Math.sin(a);
+    return new THREE.Vector2(c*v.x - s*v.y, s*v.x + c*v.y);
+  };
+  let bestIdx = 0, bestScore = -Infinity;
+  for (let k = 0; k < 4; k++) {
+    const pts = allXZ.map(p => rotV(p, k));
+    let minX = +Infinity, maxX = -Infinity, minZ = +Infinity, maxZ = -Infinity;
+    for (const p of pts) { if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x; if (p.y < minZ) minZ = p.y; if (p.y > maxZ) maxZ = p.y; }
+    const tol = 0.08 * span;
+    let nearLeft = 0, nearTop = 0, nearRight = 0, nearBottom = 0;
+    for (const p of pts) {
+      if (p.x - minX < tol) nearLeft++;
+      if (maxZ - p.y < tol) nearTop++;
+      if (maxX - p.x < tol) nearRight++;
+      if (p.y - minZ < tol) nearBottom++;
+    }
+    const score = nearLeft + nearTop - 0.35*(nearRight + nearBottom);
+    if (score > bestScore) { bestScore = score; bestIdx = k; }
+  }
+  return bestIdx;
+}
+
+/** mide las “bocas” de una curva ya orientada: minX (izq) y maxZ (arriba) */
+function measureCurveMouth(wrap: THREE.Object3D) {
+  const bb = new THREE.Box3().setFromObject(wrap);
+  const sz = bb.getSize(new THREE.Vector3());
+  const pts = collectXZPoints(wrap);
+
+  let minX =  Infinity;
+  let maxZ = -Infinity;
+
+  const stripeNearZ = sz.z * 0.22; // ancho de franja cerca del eje Z
+  const stripeNearX = sz.x * 0.22; // y cerca del eje X
+
+  for (const p of pts) {
+    if (Math.abs(p.y) < stripeNearZ) minX = Math.min(minX, p.x);
+    if (Math.abs(p.x) < stripeNearX) maxZ = Math.max(maxZ, p.y);
+  }
+
+  if (!isFinite(minX)) minX = -sz.x / 2;
+  if (!isFinite(maxZ)) maxZ =  sz.z / 2;
+
+  return { minX, maxZ, bboxSize: sz };
+}
+
+/* ---------- puertos con base en la rejilla (RAIL_UNIT) ---------- */
+function fixedPorts(kind: RailKind, L = RAIL_UNIT) {
+  const h = L / 2;
+  if (kind === 'straight') {
+    return [
+      { p: new THREE.Vector2(0, -h), d: new THREE.Vector2(0, -1) },
+      { p: new THREE.Vector2(0,  h), d: new THREE.Vector2(0,  1) },
+    ];
+  }
+  if (kind === 'curve90') {
+    return [
+      { p: new THREE.Vector2(-h, 0), d: new THREE.Vector2(-1, 0) },
+      { p: new THREE.Vector2( 0, h), d: new THREE.Vector2(0,  1) },
+    ];
+  }
+  if (kind === 'tjunction') {
+    return [
+      { p: new THREE.Vector2(-h, 0), d: new THREE.Vector2(-1, 0) },
+      { p: new THREE.Vector2( 0,-h), d: new THREE.Vector2(0, -1) },
+      { p: new THREE.Vector2( 0, h), d: new THREE.Vector2(0,  1) },
+    ];
+  }
+  // cross
+  return [
+    { p: new THREE.Vector2(-h, 0), d: new THREE.Vector2(-1, 0) },
+    { p: new THREE.Vector2( h, 0), d: new THREE.Vector2( 1, 0) },
+    { p: new THREE.Vector2( 0,-h), d: new THREE.Vector2(0, -1) },
+    { p: new THREE.Vector2( 0, h), d: new THREE.Vector2(0,  1) },
+  ];
+}
+
+/* ---------- API ---------- */
+export async function tryGetRail(kind: RailKind): Promise<CacheEntry | null> {
+  const cached = cache.get(kind);
+  if (cached) return cached;
+
+  // ---------- STRAIGHT ----------
+  if (kind === 'straight') {
+    const cand = [
+      'railroad-straight.glb','railroad-rail-straight.glb',
+      'track-straight.glb','track.glb','track-single.glb','track-single-detailed.glb',
+      'rail_straight.glb','railStraight.glb','straight.glb'
+    ];
+    const raw = await loadRaw(cand); if (!raw) return null;
+    const norm = normalizeToUnit(raw.scene, true);
+    const ports = fixedPorts('straight', RAIL_UNIT);
+    (norm.wrap.userData ??= {}).ports = ports;
+    const entry: CacheEntry = { wrap: norm.wrap, span: norm.span, kind: 'straight', ports };
+    cache.set('straight', entry);
+    return entry;
+  }
+
+  // ---------- CURVE 90 ----------
+  if (kind === 'curve90') {
+    const cornerFirst = [
+      'railroad-corner-small.glb','railroad-corner-large.glb',
+      'railroad-rail-corner-small.glb','railroad-rail-corner-large.glb',
+      'railroad-corner-small-ramp.glb','railroad-corner-large-ramp.glb',
+      'railroad-rail-corner-small-ramp.glb','railroad-rail-corner-large-ramp.glb',
+      'corner.glb','corner-90.glb','quarter.glb','quarter-turn.glb','turn-90.glb','turn90.glb'
+    ];
+    const genericCurves = [
+      'track-curve-90.glb','railroad-curve-90.glb','railroad-rail-curve-90.glb',
+      'railroad-curve.glb','railroad-rail-curve.glb','track-curve.glb','turn.glb','curve.glb'
+    ];
+
+    const tryOne = async (name: string) => {
+      const raw = await loadRaw([name]);
+      if (!raw) return null;
+
+      // 1) normaliza por caja
+      const norm = normalizeToUnit(raw.scene, false);
+
+      // 2) orienta a –X → +Z
+      const xz = collectXZPoints(norm.wrap);
+      const idx = rotationIdxForCorner(xz, Math.max(norm.size.x, norm.size.z));
+      norm.wrap.rotation.y += idx * (Math.PI / 2);
+      norm.wrap.updateWorldMatrix(true, true);
+
+      // 3) mide bocas y re-escala para que queden a ±RAIL_UNIT/2
+      const m = measureCurveMouth(norm.wrap);
+      const want = RAIL_UNIT / 2;
+      const current = (Math.abs(m.minX) + Math.abs(m.maxZ)) * 0.5 || 1e-6;
+      const fix = THREE.MathUtils.clamp(want / current, 0.05, 20);
+      norm.wrap.scale.multiplyScalar(fix);
+      norm.wrap.updateWorldMatrix(true, true);
+
+      // 4) puertos fijos en la rejilla
+      const ports = fixedPorts('curve90', RAIL_UNIT);
+      (norm.wrap.userData ??= {}).ports = ports;
+
+      // 5) span tras el reescaleo (solo para layout/medidas auxiliares)
+      const bb = new THREE.Box3().setFromObject(norm.wrap);
+      const size = bb.getSize(new THREE.Vector3());
+
+      const entry: CacheEntry = {
+        wrap: norm.wrap,
+        span: Math.max(size.x, size.z),
+        kind: 'curve90',
+        ports
+      };
+      cache.set('curve90', entry);
+      return entry;
+    };
+
+    for (const n of cornerFirst) { const e = await tryOne(n); if (e) return e; }
+    for (const n of genericCurves) { const e = await tryOne(n); if (e) return e; }
+
+    console.warn('[rails] No curve90 (esquina) válida encontrada. Se omitirá del selector.');
+    return null;
+  }
+
+  // ---------- T-JUNCTION ----------
+  if (kind === 'tjunction') {
+    const cand = ['track-t.glb','railroad-t.glb','railroad-rail-t.glb','switch-t.glb','t.glb','t_junction.glb','junction-t.glb'];
+    const raw = await loadRaw(cand);
+    if (raw) {
+      const norm = normalizeToUnit(raw.scene, true);
+      const ports = fixedPorts('tjunction', RAIL_UNIT);
+      (norm.wrap.userData ??= {}).ports = ports;
+      const entry: CacheEntry = { wrap: norm.wrap, span: norm.span, kind: 'tjunction', ports };
+      cache.set('tjunction', entry);
+      return entry;
+    }
+    // fallback con 2 rectas
+    const straight = await tryGetRail('straight');
+    if (straight) {
+      const g = new THREE.Group();
+      const a = straight.wrap.clone(true); a.rotation.y = 0; g.add(a);
+      const b = straight.wrap.clone(true); b.rotation.y = Math.PI/2; g.add(b);
+      const norm = normalizeToUnit(g, true);
+      const ports = fixedPorts('tjunction', RAIL_UNIT);
+      (norm.wrap.userData ??= {}).ports = ports;
+      const entry: CacheEntry = { wrap: norm.wrap, span: norm.span, kind: 'tjunction', ports };
+      cache.set('tjunction', entry);
+      console.warn('[rails] T junction no encontrada → usando fallback compuesto.');
+      return entry;
+    }
+    console.warn('[rails] T junction no encontrada');
+    return null;
+  }
+
+  // ---------- CROSS (+) ----------
+  const cand = ['track-cross.glb','railroad-cross.glb','railroad-rail-cross.glb','cross.glb','x.glb'];
+  const raw = await loadRaw(cand);
+  if (raw) {
+    const norm = normalizeToUnit(raw.scene, true);
+    const ports = fixedPorts('cross', RAIL_UNIT);
+    (norm.wrap.userData ??= {}).ports = ports;
+    const entry: CacheEntry = { wrap: norm.wrap, span: norm.span, kind: 'cross', ports };
+    cache.set('cross', entry);
+    return entry;
+  }
+  // Fallback con 2 rectas
+  const straight = await tryGetRail('straight');
+  if (straight) {
+    const g = new THREE.Group();
+    const a = straight.wrap.clone(true); a.rotation.y = 0; g.add(a);
+    const b = straight.wrap.clone(true); b.rotation.y = Math.PI/2; g.add(b);
+    const norm = normalizeToUnit(g, true);
+    const ports = fixedPorts('cross', RAIL_UNIT);
+    (norm.wrap.userData ??= {}).ports = ports;
+    const entry: CacheEntry = { wrap: norm.wrap, span: norm.span, kind: 'cross', ports };
+    cache.set('cross', entry);
+    console.warn('[rails] Cross + no encontrado → usando fallback compuesto.');
+    return entry;
+  }
+  console.warn('[rails] Cross + no encontrado');
+  return null;
+}
+
+
+/* ===== FILE: scene/rails.ts ===== */
+// src/scene/rails.ts
+import * as THREE from 'three';
+import { railsLoader } from './loaders';
+
+const loader = railsLoader();
+
+export const RAIL_UNIT = 2.0;   // longitud objetivo de una recta normalizada
+const Y_RAIL = 0.07;
+const MARGIN = 2.0;
+const BOARD_HALF_X = 16;  // WIDTH/2
+const BOARD_HALF_Z = 12;  // DEPTH/2
+
+type CurveNorm = {
+  wrap: THREE.Object3D;
+  spanX: number; // huella en X (ya escalada y centrada)
+  spanZ: number; // huella en Z
+};
 
 export function createRails() {
   const group = new THREE.Group();
 
-  const candidates = [
-    '/assets/rails/railroad-straight.glb',
-    '/assets/rails/railroad-rail-straight.glb',
-    '/assets/rails/track.glb',
-    '/assets/rails/track-single.glb',
-    '/assets/rails/track-single-detailed.glb',
+  // rectas y curvas probables en Kenney/Quaternius
+  const STRAIGHT_CAND = [
+    'railroad-straight.glb',
+    'railroad-rail-straight.glb',
+    'track.glb',
+    'track-single.glb',
+    'track-single-detailed.glb',
+  ];
+  // preferimos explícitas de 90°
+  const CURVE_CAND = [
+    'track-curve-90.glb',
+    'railroad-curve-90.glb',
+    'railroad-rail-curve-90.glb',
+    'track-curve.glb',
+    'railroad-curve.glb',
   ];
 
-  loadFirstExisting(candidates).then((straight) => {
-    if (!straight) {
-      console.warn('[rails] no se encontró ninguna recta de las candidatas:', candidates);
+  // guardamos última solución para getSpawnPose()
+  let last = {
+    half: 6,         // semilado de la vía (centro a esquina de la “línea central”)
+    span: RAIL_UNIT, // huella cuadrada que ocupa la curva en una esquina
+    L: RAIL_UNIT,    // longitud de recta
+  };
+
+  Promise.all([
+    loadFirstExisting(STRAIGHT_CAND),
+    loadFirstExistingWithName(CURVE_CAND),
+  ]).then(([straightRaw, curveNamed]) => {
+    if (!straightRaw || !curveNamed?.scene) {
+      console.warn('[rails] faltan piezas (recta o curva)');
       return;
     }
-    preparePiece(straight);
-    buildLoop(straight);
+    const straight = normalizeStraight(straightRaw);
+    const curve = normalizeCurve(curveNamed.scene); // devuelve {wrap, spanX, spanZ}
+  //  buildSquareLoop(straight, curve);
   });
 
-  function preparePiece(obj: THREE.Object3D) {
+  // ---------- helpers de normalización ----------
+
+  function ensureSRGBAndShadows(obj: THREE.Object3D) {
     obj.traverse((o: any) => {
-      if (!o.isMesh) return;
-      const name = (o.name || '').toLowerCase();
-      const color =
-        name.includes('rail')  ? 0x6F6F6F :      // metal
-        name.includes('sleep') ? 0x8B5A2B :      // durmientes
-                                0x8B5A2B;
-      o.material = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(color).convertSRGBToLinear(),
-        metalness: 0,
-        roughness: 0.6,
-        flatShading: true,
-      });
+      if (!o?.isMesh) return;
       o.castShadow = true; o.receiveShadow = true;
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      mats.forEach((m: any) => { if (m?.map) m.map.colorSpace = THREE.SRGBColorSpace; });
+    });
+  }
+
+  function normalizeStraight(src: THREE.Object3D) {
+    ensureSRGBAndShadows(src);
+    src.updateWorldMatrix(true, true);
+    const b = new THREE.Box3().setFromObject(src);
+    const size = b.getSize(new THREE.Vector3());
+    const center = b.getCenter(new THREE.Vector3());
+    const long = Math.max(size.x, size.z) || 1;
+    const scale = THREE.MathUtils.clamp(RAIL_UNIT / long, 0.02, 5);
+
+    const wrap = new THREE.Group();
+    src.position.add(center.multiplyScalar(-scale)); // recentra
+    src.scale.setScalar(scale);
+    wrap.add(src);
+
+    // orientamos para que “apunte” por +Z (su eje largo)
+    if (size.x >= size.z) wrap.rotation.y = Math.PI / 2;
+
+    wrap.position.y = Y_RAIL;
+    wrap.updateWorldMatrix(true, true);
+    return wrap;
+  }
+
+  function normalizeCurve(src: THREE.Object3D): CurveNorm {
+    ensureSRGBAndShadows(src);
+    src.updateWorldMatrix(true, true);
+    const b0 = new THREE.Box3().setFromObject(src);
+    const size0 = b0.getSize(new THREE.Vector3());
+    const center0 = b0.getCenter(new THREE.Vector3());
+
+    // escalamos la curva para que su “huella” quepa en una celda ~ L×L
+    const boxSpan = Math.max(size0.x, size0.z) || 1;
+    const scale = THREE.MathUtils.clamp(RAIL_UNIT / boxSpan, 0.02, 5);
+
+    const wrap = new THREE.Group();
+    src.position.add(center0.multiplyScalar(-scale)); // recéntrala al (0,0,0)
+    src.scale.setScalar(scale);
+    wrap.add(src);
+    wrap.position.y = Y_RAIL;
+
+    // medimos ya escalado y centrado:
+    wrap.updateWorldMatrix(true, true);
+    const b = new THREE.Box3().setFromObject(wrap);
+    const size = b.getSize(new THREE.Vector3());
+    return { wrap, spanX: size.x, spanZ: size.z };
+  }
+
+  // ---------- construcción del cuadrado ----------
+
+  function buildSquareLoop(straight: THREE.Object3D, curve: CurveNorm) {
+    const L = RAIL_UNIT;
+    const span = Math.max(curve.spanX, curve.spanZ); // curva ocupa una “celda” ~ span×span
+
+    // radio/semilado máximo que cabe con margen:
+    const fitHalf = Math.min(BOARD_HALF_X, BOARD_HALF_Z) - MARGIN;
+
+    // Queremos un cuadrado de lado interior: side = N*L + span
+    // => N = floor((2*fitHalf - span) / L)  (N>=2)
+    const N = Math.max(2, Math.floor((2 * fitHalf - span) / L));
+
+    // semilado real que vamos a usar:
+    const half = (N * L + span) / 2;
+
+    // guardamos para spawn
+    last = { half, span, L };
+
+    // Centros de las curvas (cada una ocupa su celda de tamaño `span`)
+    // cuadrantes: SW, SE, NE, NW
+    const corners = [
+      { x: -half + span / 2, z: -half + span / 2, rot: 0 },              // SW  (de +X a +Z)
+      { x:  half - span / 2, z: -half + span / 2, rot: Math.PI / 2 },    // SE  (de +Z a -X)
+      { x:  half - span / 2, z:  half - span / 2, rot: Math.PI },        // NE  (de -X a -Z)
+      { x: -half + span / 2, z:  half - span / 2, rot: -Math.PI / 2 },   // NW  (de -Z a +X)
+    ];
+
+    // Colocamos curvas (centradas en su celda)
+    corners.forEach(c => {
+      const inst = curve.wrap.clone(true);
+      inst.position.set(c.x, Y_RAIL, c.z);
+      inst.rotation.y = c.rot;
+      group.add(inst);
     });
 
-    // Normaliza la longitud a TILE (eje x/z mayor)
-    obj.updateWorldMatrix(true, true);
-    const b = new THREE.Box3().setFromObject(obj);
-    const s = b.getSize(new THREE.Vector3());
-    const span = Math.max(s.x, s.z) || 1; // evita división por cero
-    const scale = THREE.MathUtils.clamp(TILE / span, 0.02, 5.0);
-    obj.scale.setScalar(scale);
-    obj.position.y = Y_RAIL;
-    obj.updateWorldMatrix(true, true);
-  }
-
-  const center = new THREE.Vector3(0, 0, 0);
-  const chord = TILE;
-  const baseR = chord / (2 * Math.sin(Math.PI / SEGMENTS));
-  const R = baseR * R_FACTOR;
-
-  function poseAt(theta = 0) {
-    const pos = new THREE.Vector3(center.x + R * Math.cos(theta), Y_RAIL, center.z + R * Math.sin(theta));
-    const yaw = theta + Math.PI / 2; // tangente
-    return { position: pos, yaw };
-  }
-
-  function buildLoop(piece: THREE.Object3D) {
-    for (let i = 0; i < SEGMENTS; i++) {
-      const theta = (i / SEGMENTS) * Math.PI * 2;
-      const inst = piece.clone(true);
-      const { position, yaw } = poseAt(theta);
-      inst.position.copy(position);
-      inst.rotation.y = yaw;
+    // Tramos rectos: EXACTAMENTE N por lado
+    // Lado Sur: de x = -half + span/2  hasta  x = half - span/2  (z = -half)
+    for (let k = 0; k < N; k++) {
+      const x = (-half + span / 2) + (k + 0.5) * L;
+      const inst = straight.clone(true);
+      inst.position.set(x, Y_RAIL, -half);
+      inst.rotation.y = Math.PI / 2; // a lo largo de X
+      group.add(inst);
+    }
+    // Este
+    for (let k = 0; k < N; k++) {
+      const z = (-half + span / 2) + (k + 0.5) * L;
+      const inst = straight.clone(true);
+      inst.position.set(half, Y_RAIL, z);
+      inst.rotation.y = 0; // a lo largo de Z
+      group.add(inst);
+    }
+    // Norte
+    for (let k = 0; k < N; k++) {
+      const x = (half - span / 2) - (k + 0.5) * L;
+      const inst = straight.clone(true);
+      inst.position.set(x, Y_RAIL, half);
+      inst.rotation.y = Math.PI / 2;
+      group.add(inst);
+    }
+    // Oeste
+    for (let k = 0; k < N; k++) {
+      const z = (half - span / 2) - (k + 0.5) * L;
+      const inst = straight.clone(true);
+      inst.position.set(-half, Y_RAIL, z);
+      inst.rotation.y = 0;
       group.add(inst);
     }
   }
 
+  // ---------- loaders con nombre ----------
+
   async function loadFirstExisting(paths: string[]) {
     for (const p of paths) {
-      try {
-        const gltf = await new Promise<THREE.Object3D | null>((resolve, reject) => {
-          loader.load(p, (g) => resolve(g.scene), undefined, () => resolve(null));
-        });
-        if (gltf) return gltf;
-      } catch {}
+      const gltf = await new Promise<THREE.Object3D | null>((resolve) => {
+        loader.load(p, (g) => resolve(g.scene), undefined, () => resolve(null));
+      });
+      if (gltf) return gltf;
+    }
+    return null;
+  }
+
+  async function loadFirstExistingWithName(paths: string[]) {
+    for (const p of paths) {
+      const gltf = await new Promise<{scene: THREE.Object3D, name: string} | null>((resolve) => {
+        loader.load(p, (g) => resolve({ scene: g.scene, name: p }), undefined, () => resolve(null));
+      });
+      if (gltf) return gltf;
     }
     return null;
   }
 
   return {
     group,
-    getSpawnPose: () => poseAt(0),
+    getSpawnPose: () => {
+      // centro del primer tramo del lado sur (mirando +X)
+      const x = (-last.half + last.span / 2) + (0.5) * last.L;
+      return { position: new THREE.Vector3(x, Y_RAIL, -last.half), yaw: Math.PI / 2 };
+    },
     railHeight: Y_RAIL,
+    chordLen: RAIL_UNIT,
   };
 }
 
 
 /* ===== FILE: scene/train.ts ===== */
-// scene/train.ts
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { COLORS } from './uiColors';
+import { railsLoader } from './loaders';
+import { RAIL_UNIT } from './rails';
 
-const loader = new GLTFLoader();
-const srgb = (hex: number | string) => new THREE.Color(hex as any).convertSRGBToLinear();
+const loader = railsLoader();
 
 type Pose = { position?: THREE.Vector3; yaw?: number; railY?: number };
-type TrainOpts = { random?: boolean; pose?: Pose };
+type TrainOpts = { random?: boolean; pose?: Pose; carLength?: number };
 
 const HEADS = [
   'train-electric-city-a.glb',
@@ -423,7 +853,6 @@ const HEADS = [
   'train-tram-classic.glb',
   'train-tram-modern.glb',
 ];
-
 const CARS = [
   'train-electric-city-b.glb',
   'train-electric-city-c.glb',
@@ -434,9 +863,10 @@ const CARS = [
   'train-carriage-flatbed.glb',
 ];
 
-const CAR_LEN = 1.6;   // más corto que la cuerda de vía (TILE=2.0)
-const GAP     = 0.03;  // separación mínima
-const SCALE_MIN = 0.05, SCALE_MAX = 5.0; // seguridad
+const CAR_LEN_DEFAULT = RAIL_UNIT * 0.92;
+const CAR_LEN   = RAIL_UNIT * 0.92; // coche ≈ cuerda de vía, un pelín más corto
+const GAP       = 0.02;             // separación mínima
+  
 
 function pick<T>(arr: T[]) { return arr[Math.floor(Math.random() * arr.length)]; }
 
@@ -452,38 +882,38 @@ export function createTrain(opts: TrainOpts = {}) {
   const expected = files.length;
 
   files.forEach((file, i) => {
-    loader.load(`/assets/rails/${file}`, (gltf) => {
-      const obj = gltf.scene;
+loader.load(file, (gltf) => {
+  const obj = gltf.scene;
 
-      obj.traverse((o: any) => {
-        if (!o.isMesh) return;
-        const mat = (o.material as THREE.MeshStandardMaterial).clone();
-        if (mat.map) mat.map.colorSpace = THREE.SRGBColorSpace;
-        mat.metalness = 0; mat.roughness = 0.6; mat.color = srgb(COLORS.trainRed);
-        o.material = mat; o.castShadow = true;
-      });
+  // conservar materiales/texturas originales
+  obj.traverse((o: any) => {
+    if (!o.isMesh) return;
+    o.castShadow = true;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    mats.forEach((m: any) => { if (m?.map) m.map.colorSpace = THREE.SRGBColorSpace; });
+  });
 
-      obj.updateWorldMatrix(true, true);
-      const box = new THREE.Box3().setFromObject(obj);
-      const size = box.getSize(new THREE.Vector3());
-      const length = Math.max(size.x, size.z) || 1; // seguridad
-      const scl = THREE.MathUtils.clamp(CAR_LEN / length, SCALE_MIN, SCALE_MAX);
-      obj.scale.setScalar(scl);
+  const targetLen = opts.carLength ?? CAR_LEN_DEFAULT;
 
-      // encadena los vagones detrás de la cabeza
-      obj.position.z = -i * (CAR_LEN + GAP);
-      group.add(obj);
+  obj.updateWorldMatrix(true, true);
+  const box = new THREE.Box3().setFromObject(obj);
+  const size = box.getSize(new THREE.Vector3());
+  const length = Math.max(size.x, size.z) || 1;
+  const scl = THREE.MathUtils.clamp(targetLen / length, 0.05, 5);
+  obj.scale.setScalar(scl);
 
-      if (++loaded === expected) {
-        // Apoyo vertical sobre la vía, y pose final
-        const bb = new THREE.Box3().setFromObject(group);
-        const railY = (opts.pose?.railY ?? 0.08);
-        const clearance = 0.02;
-        group.position.y += (railY + clearance) - bb.min.y;
-        if (opts.pose?.yaw !== undefined) group.rotation.y = opts.pose.yaw;
-        if (opts.pose?.position) group.position.add(opts.pose.position);
-      }
-    });
+  // encadenar
+  obj.position.z = -i * (targetLen + GAP);
+  group.add(obj);
+
+  if (++loaded === expected) {
+    const bb = new THREE.Box3().setFromObject(group);
+    const railY = (opts.pose?.railY ?? 0.08);
+    group.position.y += (railY + 0.02) - bb.min.y; // apoyo justo sobre la vía
+    if (opts.pose?.yaw !== undefined) group.rotation.y = opts.pose.yaw;
+    if (opts.pose?.position) group.position.add(opts.pose.position);
+  }
+});
   });
 
   return group;
@@ -539,5 +969,305 @@ export function createWater() {
   };
 
   return { mesh, animate };
+}
+
+
+/* ===== FILE: ui/trackEditor.ts ===== */
+// src/ui/trackEditor.ts
+import * as THREE from 'three';
+
+// Importa SOLO valores
+import { tryGetRail } from '../scene/railLibrary';
+import type { RailKind } from '../scene/railLibrary';
+import { RAIL_UNIT } from '../scene/rails';
+
+type EditorOpts = {
+  scene: THREE.Scene;
+  camera: THREE.Camera;
+  renderer: THREE.WebGLRenderer;
+  grid: { step: number, y: number };
+};
+
+type Placed = {
+  kind: RailKind;
+  center: THREE.Vector3;   // y = grid.y
+  rotIdx: number;          // 0..3 (90° pasos)
+  node: THREE.Object3D;
+};
+
+function rotate2a(v: THREE.Vector2, angle: number) {
+  const c = Math.cos(angle), s = Math.sin(angle);
+  return new THREE.Vector2(c * v.x - s * v.y, s * v.x + c * v.y);
+}
+
+function getLocalPortsFrom(kind: RailKind, obj: THREE.Object3D) {
+  const ports = obj.userData?.ports as { p: THREE.Vector2; d: THREE.Vector2 }[] | undefined;
+  if (ports && ports.length) return ports;
+
+  // Fallback conservador si una pieza no trae puertos
+  const L = RAIL_UNIT;
+  if (kind === 'straight') return [
+    { p: new THREE.Vector2(0, -L/2), d: new THREE.Vector2(0, -1) },
+    { p: new THREE.Vector2(0,  L/2), d: new THREE.Vector2(0,  1) },
+  ];
+  if (kind === 'curve90') return [
+    { p: new THREE.Vector2(-L/2, 0), d: new THREE.Vector2(-1, 0) },
+    { p: new THREE.Vector2( 0, L/2), d: new THREE.Vector2(0,  1) },
+  ];
+  if (kind === 'tjunction') return [
+    { p: new THREE.Vector2(-L/2, 0), d: new THREE.Vector2(-1, 0) },
+    { p: new THREE.Vector2( 0, -L/2), d: new THREE.Vector2(0, -1) },
+    { p: new THREE.Vector2( 0,  L/2), d: new THREE.Vector2(0,  1) },
+  ];
+  return [
+    { p: new THREE.Vector2(-L/2, 0), d: new THREE.Vector2(-1, 0) },
+    { p: new THREE.Vector2( L/2, 0), d: new THREE.Vector2( 1, 0) },
+    { p: new THREE.Vector2( 0, -L/2), d: new THREE.Vector2(0, -1) },
+    { p: new THREE.Vector2( 0,  L/2), d: new THREE.Vector2(0,  1) },
+  ];
+}
+
+function portsWorldFromObject(
+  kind: RailKind,
+  obj: THREE.Object3D,
+  center: THREE.Vector3,
+  angle: number,
+  y: number
+) {
+  const base = getLocalPortsFrom(kind, obj);
+  return base.map(({ p, d }) => {
+    const pr = rotate2a(p, angle);
+    const dr = rotate2a(d, angle);
+    return {
+      p: new THREE.Vector3(center.x + pr.x, y, center.z + pr.y),
+      d: new THREE.Vector2(dr.x, dr.y)
+    };
+  });
+}
+
+export function enableTrackEditor({ scene, camera, renderer, grid }: EditorOpts) {
+  // ---- Estado general ----
+  const raycaster = new THREE.Raycaster();
+  const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -grid.y);
+  const mouse = new THREE.Vector2();
+
+  const tracksGroup = new THREE.Group();
+  scene.add(tracksGroup);
+
+  const placed: Placed[] = [];
+
+  // ---- Paleta dinámica con miniaturas ----
+  // elimina paleta anterior si HMR
+  const old = document.getElementById('track-palette');
+  if (old && old.parentElement) old.parentElement.removeChild(old);
+
+  const bar = document.createElement('div');
+  bar.id = 'track-palette';
+  Object.assign(bar.style, {
+    position: 'fixed',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    bottom: '14px',
+    background: 'rgba(255,255,255,0.95)',
+    padding: '10px',
+    borderRadius: '12px',
+    boxShadow: '0 6px 18px rgba(0,0,0,.15)',
+    zIndex: '99999',
+    pointerEvents: 'auto',
+    display: 'flex',
+    gap: '10px',
+    alignItems: 'center',
+    fontFamily: 'ui-sans-serif, system-ui, Segoe UI, Roboto, Arial'
+  } as CSSStyleDeclaration);
+
+  const hint = document.createElement('span');
+  hint.textContent = 'Arrastra una pieza. R para rotar 90°';
+  hint.style.marginLeft = '8px';
+
+  const kinds: RailKind[] = ['straight', 'curve90', 'tjunction', 'cross'];
+
+  const thumbScene = new THREE.Scene();
+  const thumbCam = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
+  thumbCam.position.set(2.2, 2.5, 2.2);
+  thumbCam.lookAt(0, 0, 0);
+  const thumbDL = new THREE.DirectionalLight(0xffffff, 1);
+  thumbDL.position.set(2, 3, 1);
+  thumbScene.add(new THREE.AmbientLight(0xffffff, 0.7), thumbDL);
+
+  async function makeButton(kind: RailKind) {
+    const entry = await tryGetRail(kind);
+    if (!entry) {
+      console.warn('[trackEditor] no hay pieza', kind);
+      return null;
+    }
+
+    const btn = document.createElement('button');
+    Object.assign(btn.style, {
+      width: '68px',
+      height: '48px',
+      border: '1px solid #ddd',
+      borderRadius: '10px',
+      cursor: 'grab',
+      padding: '0',
+      background: '#fff',
+      display: 'inline-block'
+    } as CSSStyleDeclaration);
+    btn.dataset.kind = kind;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 136; canvas.height = 96;
+    canvas.style.width = '68px'; canvas.style.height = '48px';
+    btn.appendChild(canvas);
+
+    const r = new THREE.WebGLRenderer({ antialias: true, canvas });
+    r.setPixelRatio(1);
+    r.setSize(136, 96, false);
+    const mini = entry.wrap.clone(true);
+    mini.position.set(0, 0, 0);
+    thumbScene.add(mini);
+    r.render(thumbScene, thumbCam);
+    thumbScene.remove(mini);
+
+    btn.addEventListener('pointerdown', (e) => { e.preventDefault(); beginDrag(kind, e as PointerEvent); });
+    return btn;
+  }
+
+  (async () => {
+    const frags: HTMLElement[] = [];
+    for (const k of kinds) {
+      const b = await makeButton(k);
+      if (b) frags.push(b);
+    }
+    // si no hay ninguna pieza, igualmente mostramos una banda con el hint
+    frags.forEach(b => bar.appendChild(b));
+    bar.appendChild(hint);
+    document.body.appendChild(bar);
+  })();
+
+  // ---- Drag & Snap ----
+  let dragging = false;
+  let currentKind: RailKind = 'straight';
+  let ghost: THREE.Object3D | null = null;
+  let proto: THREE.Object3D | null = null;
+  let rotIdx = 0; // 0..3
+
+  function screenToWorld(ev: PointerEvent) {
+    const rect = renderer.domElement.getBoundingClientRect();
+    mouse.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(mouse, camera);
+    const hit = new THREE.Vector3();
+    raycaster.ray.intersectPlane(plane, hit);
+    return hit;
+  }
+
+  function snapToGrid(v: THREE.Vector3) {
+    const s = grid.step;
+    return new THREE.Vector3(Math.round(v.x / s) * s, grid.y, Math.round(v.z / s) * s);
+  }
+
+  function makeGhost(from: THREE.Object3D) {
+    const g = from.clone(true);
+    g.traverse((o: any) => {
+      if (!o?.isMesh) return;
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      mats.forEach((mat: any) => {
+        if (!mat) return;
+        const c = mat.clone(); c.transparent = true; c.opacity = 0.55;
+        o.material = c;
+      });
+      o.castShadow = false; o.receiveShadow = false;
+    });
+    return g;
+  }
+
+  function bestSnapFor(kind: RailKind, idxStart: number, centerGuess: THREE.Vector3) {
+    if (!proto) return { center: snapToGrid(centerGuess), rotIdx: idxStart, score: 999 };
+
+    const thresh = RAIL_UNIT * 0.38; // más preciso
+
+    let best: { center: THREE.Vector3; rotIdx: number; score: number } | null = null;
+
+    for (let ri = 0; ri < 4; ri++) {
+      const idx = (idxStart + ri) % 4;
+      const angle = idx * (Math.PI / 2);
+      const ghostPorts = portsWorldFromObject(kind, proto, centerGuess, angle, grid.y);
+
+      for (const other of placed) {
+        const otherAngle = other.rotIdx * (Math.PI / 2);
+        const otherPorts = portsWorldFromObject(other.kind, other.node, other.center, otherAngle, grid.y);
+
+        for (const gp of ghostPorts) {
+          for (const op of otherPorts) {
+            const dist = gp.p.distanceTo(op.p);
+            if (dist > thresh) continue;
+            const dot = gp.d.clone().multiplyScalar(-1).dot(op.d);
+            if (dot < 0.93) continue; // direcciones casi opuestas
+
+            const shift = op.p.clone().sub(gp.p);
+            const newCenter = centerGuess.clone().add(shift);
+            const score = dist + (1 - dot) * 0.1;
+            if (!best || score < best.score) best = { center: newCenter, rotIdx: idx, score };
+          }
+        }
+      }
+    }
+
+    if (best) return best;
+    return { center: snapToGrid(centerGuess), rotIdx: idxStart, score: 999 };
+  }
+
+  async function beginDrag(kind: RailKind, ev: PointerEvent) {
+    const entry = await tryGetRail(kind);
+    if (!entry) return;
+    currentKind = kind;
+    rotIdx = 0;
+    proto = entry.wrap;
+
+    if (ghost) scene.remove(ghost);
+    ghost = makeGhost(proto);
+    scene.add(ghost);
+    dragging = true;
+    moveGhost(ev);
+  }
+
+  function moveGhost(ev: PointerEvent) {
+    if (!dragging || !ghost || !proto) return;
+    const p = screenToWorld(ev);
+    const guess = new THREE.Vector3(p.x, grid.y, p.z);
+    const snapped = bestSnapFor(currentKind, rotIdx, guess);
+    ghost.position.copy(snapped.center);
+    ghost.rotation.y = snapped.rotIdx * (Math.PI / 2);
+  }
+
+  function endDrag() {
+    if (!dragging || !ghost || !proto) return;
+
+    const real = proto.clone(true);
+    real.position.copy(ghost.position);
+    real.rotation.y = ghost.rotation.y;
+    tracksGroup.add(real);
+
+    const idx = Math.round((ghost.rotation.y / (Math.PI / 2)) % 4 + 4) % 4;
+    placed.push({ kind: currentKind, center: ghost.position.clone(), rotIdx: idx, node: real });
+
+    scene.remove(ghost);
+    ghost = null; proto = null; dragging = false;
+  }
+
+  // Eventos
+  renderer.domElement.addEventListener('pointermove', (e) => moveGhost(e));
+  renderer.domElement.addEventListener('pointerup', () => endDrag());
+  window.addEventListener('keydown', (e) => {
+    if (!dragging) return;
+    if (e.key.toLowerCase() === 'r') {
+      rotIdx = (rotIdx + 1) % 4;
+      if (ghost) ghost.rotation.y = rotIdx * (Math.PI / 2);
+    }
+    if (e.key === 'Escape') {
+      if (ghost) scene.remove(ghost);
+      ghost = null; proto = null; dragging = false;
+    }
+  });
 }
 
