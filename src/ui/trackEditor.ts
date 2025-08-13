@@ -88,6 +88,14 @@ function makeDebugGrid(step: number, y: number) {
   return lines;
 }
 
+// helper de logs: mide bbox world
+function logWorldSize(tag: string, obj: THREE.Object3D) {
+  const b = new THREE.Box3().setFromObject(obj);
+  const s = b.getSize(new THREE.Vector3());
+  const span = Math.max(s.x, s.z);
+  console.log(`[place] ${tag} size=[${s.x.toFixed(4)}, ${s.z.toFixed(4)}] span=${span.toFixed(4)}  (L=${RAIL_UNIT})`);
+}
+
 export function enableTrackEditor({ scene, camera, renderer, grid }: EditorOpts) {
   const raycaster = new THREE.Raycaster();
   const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -grid.y);
@@ -258,7 +266,7 @@ export function enableTrackEditor({ scene, camera, renderer, grid }: EditorOpts)
     currentKind = kind;
     rotIdx = 0;
     proto = entry.wrap;
-    log('begin drag:', kind, 'proto span=', entry.span);
+    log('begin drag:', kind, 'proto span≈', entry.span.toFixed(4), '(L=', RAIL_UNIT, ')');
 
     if (ghost) scene.remove(ghost);
     ghost = makeGhost(proto);
@@ -286,6 +294,8 @@ export function enableTrackEditor({ scene, camera, renderer, grid }: EditorOpts)
     const idx = Math.round((ghost.rotation.y / (Math.PI / 2)) % 4 + 4) % 4;
     placed.push({ kind: currentKind, center: ghost.position.clone(), rotIdx: idx, node: real });
     log('placed:', currentKind, 'center=', ghost.position, 'rotIdx=', idx);
+    // Log de tamaño real en mundo
+    logWorldSize(currentKind, real);
 
     scene.remove(ghost);
     ghost = null; proto = null; dragging = false;

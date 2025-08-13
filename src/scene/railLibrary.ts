@@ -8,7 +8,7 @@ const loader = railsLoader();
 export type RailKind = 'straight' | 'curve90' | 'tjunction' | 'cross';
 export type CacheEntry = {
   wrap: THREE.Object3D;
-  span: number;
+  span: number; // huella cuadrada final (max X/Z) tras normalizar
   kind: RailKind;
   ports: { p: THREE.Vector2; d: THREE.Vector2 }[];
 };
@@ -91,7 +91,6 @@ function rotationIdxForCorner(allXZ: THREE.Vector2[], span: number) {
     return new THREE.Vector2(c*v.x - s*v.y, s*v.x + c*v.y);
   };
   let bestIdx = 0, bestScore = -Infinity;
-  const scores: number[] = [];
   for (let k = 0; k < 4; k++) {
     const pts = allXZ.map(p => rotV(p, k));
     let minX = +Infinity, maxX = -Infinity, minZ = +Infinity, maxZ = -Infinity;
@@ -105,10 +104,8 @@ function rotationIdxForCorner(allXZ: THREE.Vector2[], span: number) {
       if (p.y - minZ < tol) nearBottom++;
     }
     const score = nearLeft + nearTop - 0.35*(nearRight + nearBottom);
-    scores.push(score);
     if (score > bestScore) { bestScore = score; bestIdx = k; }
   }
-  log('[curve] rotation scores (0..3):', scores, '→ chosen', bestIdx);
   return bestIdx;
 }
 
@@ -134,7 +131,6 @@ function fixedPorts(kind: RailKind, L = RAIL_UNIT) {
       { p: new THREE.Vector2( 0, h), d: new THREE.Vector2(0,  1) },
     ];
   }
-  // cross
   return [
     { p: new THREE.Vector2(-h, 0), d: new THREE.Vector2(-1, 0) },
     { p: new THREE.Vector2( h, 0), d: new THREE.Vector2( 1, 0) },
@@ -160,14 +156,27 @@ export async function tryGetRail(kind: RailKind): Promise<CacheEntry | null> {
     ];
     const raw = await loadRaw(cand);
     if (!raw) return null;
-    log('[straight] using', raw.name);
+
     const norm = normalizeToUnit(raw.scene, true);
-    log('[straight] span after normalize =', norm.span, 'size=', norm.size);
+
+    // Igualamos el largo EXACTO al RAIL_UNIT
+    {
+      const b = new THREE.Box3().setFromObject(norm.wrap);
+      const s = b.getSize(new THREE.Vector3());
+      const long = Math.max(s.x, s.z) || 1;
+      const fix = THREE.MathUtils.clamp(RAIL_UNIT / long, 0.02, 5);
+      norm.wrap.scale.multiplyScalar(fix);
+      norm.wrap.updateWorldMatrix(true, true);
+    }
+
+    const after = bbox(norm.wrap).size;
+    const finalSpan = Math.max(after.x, after.z);
+    log(`[straight] span=${finalSpan.toFixed(4)} (L=${RAIL_UNIT}) size=[${after.x.toFixed(4)}, ${after.z.toFixed(4)}]`);
+
     const ports = fixedPorts('straight', RAIL_UNIT);
     (norm.wrap.userData ??= {}).ports = ports;
-    const entry: CacheEntry = { wrap: norm.wrap, span: norm.span, kind: 'straight', ports };
+    const entry: CacheEntry = { wrap: norm.wrap, span: finalSpan, kind: 'straight', ports };
     cache.set('straight', entry);
-    log('→ straight ready, span:', entry.span);
     return entry;
   }
 
@@ -189,30 +198,33 @@ export async function tryGetRail(kind: RailKind): Promise<CacheEntry | null> {
       const raw = await loadRaw([name]);
       if (!raw) return null;
 
-      log('[curve]', name);
-
-      // 1) normaliza por caja a RAIL_UNIT (span ≈ 2)
+      // 1) normaliza y centra
       const norm = normalizeToUnit(raw.scene, false);
-      log('raw bbox size after normalize:', norm.size);
 
-      // 2) orienta como –X → +Z
+      // 2) orienta la esquina como –X → +Z
       const xz = collectXZPoints(norm.wrap);
       const idx = rotationIdxForCorner(xz, Math.max(norm.size.x, norm.size.z));
       norm.wrap.rotation.y += idx * (Math.PI / 2);
       norm.wrap.updateWorldMatrix(true, true);
 
-      // IMPORTANTÍSIMO:
-      // NO volver a reescalar por “bocas”; mantener span = 2 igual que la recta.
-      // (los puertos están fijados a ±RAIL_UNIT/2, el snap usa eso)
+      // 3) fuerza huella EXACTA a LxL
+      {
+        const bFull = new THREE.Box3().setFromObject(norm.wrap);
+        const sFull = bFull.getSize(new THREE.Vector3());
+        const spanFull = Math.max(sFull.x, sFull.z) || 1;
+        const fix = THREE.MathUtils.clamp(RAIL_UNIT / spanFull, 0.02, 5);
+        norm.wrap.scale.multiplyScalar(fix);
+        norm.wrap.updateWorldMatrix(true, true);
+      }
+
       const after = bbox(norm.wrap).size;
-      const span = Math.max(after.x, after.z);
-      log('[curve] final span (sin fix de bocas) =', span);
+      const spanFinal = Math.max(after.x, after.z);
+      log(`[curve90] span=${spanFinal.toFixed(4)} (L=${RAIL_UNIT}) size=[${after.x.toFixed(4)}, ${after.z.toFixed(4)}]`);
 
       const ports = fixedPorts('curve90', RAIL_UNIT);
       (norm.wrap.userData ??= {}).ports = ports;
-      const entry: CacheEntry = { wrap: norm.wrap, span, kind: 'curve90', ports };
+      const entry: CacheEntry = { wrap: norm.wrap, span: spanFinal, kind: 'curve90', ports };
       cache.set('curve90', entry);
-      log('[curve] ready from', name, ', span:', entry.span);
       return entry;
     };
 
@@ -229,9 +241,20 @@ export async function tryGetRail(kind: RailKind): Promise<CacheEntry | null> {
     const raw = await loadRaw(cand);
     if (raw) {
       const norm = normalizeToUnit(raw.scene, true);
+
+      // Igualamos huella a L
+      {
+        const b = new THREE.Box3().setFromObject(norm.wrap);
+        const s = b.getSize(new THREE.Vector3());
+        const span = Math.max(s.x, s.z) || 1;
+        const fix = THREE.MathUtils.clamp(RAIL_UNIT / span, 0.02, 5);
+        norm.wrap.scale.multiplyScalar(fix);
+        norm.wrap.updateWorldMatrix(true, true);
+      }
+
       const ports = fixedPorts('tjunction', RAIL_UNIT);
       (norm.wrap.userData ??= {}).ports = ports;
-      const entry: CacheEntry = { wrap: norm.wrap, span: norm.span, kind: 'tjunction', ports };
+      const entry: CacheEntry = { wrap: norm.wrap, span: Math.max(bbox(norm.wrap).size.x, bbox(norm.wrap).size.z), kind: 'tjunction', ports };
       cache.set('tjunction', entry);
       return entry;
     }
@@ -244,7 +267,7 @@ export async function tryGetRail(kind: RailKind): Promise<CacheEntry | null> {
       const norm = normalizeToUnit(g, true);
       const ports = fixedPorts('tjunction', RAIL_UNIT);
       (norm.wrap.userData ??= {}).ports = ports;
-      const entry: CacheEntry = { wrap: norm.wrap, span: norm.span, kind: 'tjunction', ports };
+      const entry: CacheEntry = { wrap: norm.wrap, span: Math.max(bbox(norm.wrap).size.x, bbox(norm.wrap).size.z), kind: 'tjunction', ports };
       cache.set('tjunction', entry);
       warn('[rails] T junction no encontrada → usando fallback compuesto.');
       return entry;
@@ -254,30 +277,43 @@ export async function tryGetRail(kind: RailKind): Promise<CacheEntry | null> {
   }
 
   // ---------- CROSS (+) ----------
-  const cand = ['track-cross.glb','railroad-cross.glb','railroad-rail-cross.glb','cross.glb','x.glb'];
-  const raw = await loadRaw(cand);
-  if (raw) {
-    const norm = normalizeToUnit(raw.scene, true);
-    const ports = fixedPorts('cross', RAIL_UNIT);
-    (norm.wrap.userData ??= {}).ports = ports;
-    const entry: CacheEntry = { wrap: norm.wrap, span: norm.span, kind: 'cross', ports };
-    cache.set('cross', entry);
-    return entry;
+  {
+    const cand = ['track-cross.glb','railroad-cross.glb','railroad-rail-cross.glb','cross.glb','x.glb'];
+    const raw = await loadRaw(cand);
+    if (raw) {
+      const norm = normalizeToUnit(raw.scene, true);
+
+      // Igualamos huella a L
+      {
+        const b = new THREE.Box3().setFromObject(norm.wrap);
+        const s = b.getSize(new THREE.Vector3());
+        const span = Math.max(s.x, s.z) || 1;
+        const fix = THREE.MathUtils.clamp(RAIL_UNIT / span, 0.02, 5);
+        norm.wrap.scale.multiplyScalar(fix);
+        norm.wrap.updateWorldMatrix(true, true);
+      }
+
+      const ports = fixedPorts('cross', RAIL_UNIT);
+      (norm.wrap.userData ??= {}).ports = ports;
+      const entry: CacheEntry = { wrap: norm.wrap, span: Math.max(bbox(norm.wrap).size.x, bbox(norm.wrap).size.z), kind: 'cross', ports };
+      cache.set('cross', entry);
+      return entry;
+    }
+    // Fallback con 2 rectas
+    const straight = await tryGetRail('straight');
+    if (straight) {
+      const g = new THREE.Group();
+      const a = straight.wrap.clone(true); a.rotation.y = 0; g.add(a);
+      const b = straight.wrap.clone(true); b.rotation.y = Math.PI/2; g.add(b);
+      const norm = normalizeToUnit(g, true);
+      const ports = fixedPorts('cross', RAIL_UNIT);
+      (norm.wrap.userData ??= {}).ports = ports;
+      const entry: CacheEntry = { wrap: norm.wrap, span: Math.max(bbox(norm.wrap).size.x, bbox(norm.wrap).size.z), kind: 'cross', ports };
+      cache.set('cross', entry);
+      warn('[rails] Cross + no encontrado → usando fallback compuesto.');
+      return entry;
+    }
+    warn('[rails] Cross + no encontrado');
+    return null;
   }
-  // Fallback con 2 rectas
-  const straight = await tryGetRail('straight');
-  if (straight) {
-    const g = new THREE.Group();
-    const a = straight.wrap.clone(true); a.rotation.y = 0; g.add(a);
-    const b = straight.wrap.clone(true); b.rotation.y = Math.PI/2; g.add(b);
-    const norm = normalizeToUnit(g, true);
-    const ports = fixedPorts('cross', RAIL_UNIT);
-    (norm.wrap.userData ??= {}).ports = ports;
-    const entry: CacheEntry = { wrap: norm.wrap, span: norm.span, kind: 'cross', ports };
-    cache.set('cross', entry);
-    warn('[rails] Cross + no encontrado → usando fallback compuesto.');
-    return entry;
-  }
-  warn('[rails] Cross + no encontrado');
-  return null;
 }
