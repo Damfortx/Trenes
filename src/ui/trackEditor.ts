@@ -22,6 +22,7 @@ const DBG = true;
 const log = (...a: any[]) => { if (DBG) console.log('[editor]', ...a); };
 const warn = (...a: any[]) => { if (DBG) console.warn('[editor]', ...a); };
 
+// === helpers geom ===
 function rotate2a(v: THREE.Vector2, angle: number) {
   const c = Math.cos(angle), s = Math.sin(angle);
   return new THREE.Vector2(c * v.x - s * v.y, s * v.x + c * v.y);
@@ -31,7 +32,6 @@ function getLocalPortsFrom(kind: RailKind, obj: THREE.Object3D) {
   const ports = obj.userData?.ports as { p: THREE.Vector2; d: THREE.Vector2 }[] | undefined;
   if (ports && ports.length) return ports;
 
-  // Fallback conservador
   const L = RAIL_UNIT, h = L/2;
   if (kind === 'straight') return [
     { p: new THREE.Vector2(0, -h), d: new THREE.Vector2(0, -1) },
@@ -72,7 +72,7 @@ function portsWorldFromObject(
   });
 }
 
-// Pequeña grilla de debug con step = RAIL_UNIT
+// === debug grid (G) ===
 function makeDebugGrid(step: number, y: number) {
   const size = 40;
   const lines = new THREE.Group();
@@ -86,6 +86,22 @@ function makeDebugGrid(step: number, y: number) {
     lines.add(new THREE.Line(g, mat));
   }
   return lines;
+}
+
+// === nuevo: marco 1×1 de RAIL_UNIT (H) ===
+function makeUnitFrame(L: number, y: number) {
+  const h = L / 2;
+  const pts = [
+    new THREE.Vector3(-h, y, -h), new THREE.Vector3( h, y, -h),
+    new THREE.Vector3( h, y, -h), new THREE.Vector3( h, y,  h),
+    new THREE.Vector3( h, y,  h), new THREE.Vector3(-h, y,  h),
+    new THREE.Vector3(-h, y,  h), new THREE.Vector3(-h, y, -h),
+  ];
+  const g = new THREE.BufferGeometry().setFromPoints(pts);
+  const mat = new THREE.LineBasicMaterial({ transparent: true, opacity: 0.6 });
+  const frame = new THREE.LineSegments(g, mat);
+  frame.renderOrder = 999;
+  return frame;
 }
 
 // helper de logs: mide bbox world
@@ -106,13 +122,26 @@ export function enableTrackEditor({ scene, camera, renderer, grid }: EditorOpts)
 
   const placed: Placed[] = [];
 
-  // Grilla debug (tecla G)
+  // toggles
   let dbgGrid: THREE.Object3D | null = null;
+  let showFrames = true; // ⬅ por defecto ON para que lo veas
+
   const toggleGrid = () => {
     if (dbgGrid) { scene.remove(dbgGrid); dbgGrid = null; }
     else { dbgGrid = makeDebugGrid(grid.step, grid.y); scene.add(dbgGrid); }
   };
-  window.addEventListener('keydown', (e) => { if (e.key.toLowerCase()==='g') toggleGrid(); });
+  const toggleFrames = () => {
+    showFrames = !showFrames;
+    tracksGroup.traverse(o => {
+      if ((o as any).__unitFrame) (o as any).__unitFrame.visible = showFrames;
+    });
+  };
+
+  window.addEventListener('keydown', (e) => {
+    const k = e.key.toLowerCase();
+    if (k === 'g') toggleGrid();
+    if (k === 'h') toggleFrames(); // ⬅ nuevo
+  });
 
   // Paleta (elimina una previa por HMR)
   const old = document.getElementById('track-palette');
@@ -135,7 +164,7 @@ export function enableTrackEditor({ scene, camera, renderer, grid }: EditorOpts)
   } as CSSStyleDeclaration);
 
   const hint = document.createElement('span');
-  hint.textContent = 'Arrastra una pieza. R para rotar 90° — G: grilla';
+  hint.textContent = 'Arrastra una pieza. R: rotar 90° — G: grilla — H: marcos 1×1';
   hint.style.marginLeft = '8px';
 
   const kinds: RailKind[] = ['straight', 'curve90', 'tjunction', 'cross'];
@@ -192,6 +221,7 @@ export function enableTrackEditor({ scene, camera, renderer, grid }: EditorOpts)
   let ghost: THREE.Object3D | null = null;
   let proto: THREE.Object3D | null = null;
   let rotIdx = 0; // 0..3
+  let ghostFrame: THREE.Object3D | null = null;
 
   function screenToWorld(ev: PointerEvent) {
     const rect = renderer.domElement.getBoundingClientRect();
@@ -249,15 +279,7 @@ export function enableTrackEditor({ scene, camera, renderer, grid }: EditorOpts)
         }
       }
     }
-
-    if (best) {
-      log('snap chosen:', {
-        kind, rotIdx: best.rotIdx, score: best.score.toFixed(4),
-        gp: best.pair?.gp, op: best.pair?.op
-      });
-      return best;
-    }
-    return { center: snapToGrid(centerGuess), rotIdx: idxStart, score: 999 };
+    return best ?? { center: snapToGrid(centerGuess), rotIdx: idxStart, score: 999 };
   }
 
   async function beginDrag(kind: RailKind, ev: PointerEvent) {
@@ -271,6 +293,14 @@ export function enableTrackEditor({ scene, camera, renderer, grid }: EditorOpts)
     if (ghost) scene.remove(ghost);
     ghost = makeGhost(proto);
     scene.add(ghost);
+
+    // marco para el ghost
+    if (ghostFrame) scene.remove(ghostFrame);
+    ghostFrame = makeUnitFrame(RAIL_UNIT, grid.y + 0.001);
+    ghost.add(ghostFrame);
+    (ghost as any).__unitFrame = ghostFrame;
+    ghostFrame.visible = showFrames;
+
     dragging = true;
     moveGhost(ev);
   }
@@ -289,16 +319,23 @@ export function enableTrackEditor({ scene, camera, renderer, grid }: EditorOpts)
     const real = proto.clone(true);
     real.position.copy(ghost.position);
     real.rotation.y = ghost.rotation.y;
+
+    // marco 1×1 en la pieza real
+    const frame = makeUnitFrame(RAIL_UNIT, grid.y + 0.001);
+    (real as any).__unitFrame = frame;
+    frame.visible = showFrames;
+    real.add(frame);
+
     tracksGroup.add(real);
 
     const idx = Math.round((ghost.rotation.y / (Math.PI / 2)) % 4 + 4) % 4;
     placed.push({ kind: currentKind, center: ghost.position.clone(), rotIdx: idx, node: real });
     log('placed:', currentKind, 'center=', ghost.position, 'rotIdx=', idx);
-    // Log de tamaño real en mundo
     logWorldSize(currentKind, real);
 
     scene.remove(ghost);
     ghost = null; proto = null; dragging = false;
+    ghostFrame = null;
   }
 
   // Eventos
@@ -314,6 +351,7 @@ export function enableTrackEditor({ scene, camera, renderer, grid }: EditorOpts)
     if (e.key === 'Escape') {
       if (ghost) scene.remove(ghost);
       ghost = null; proto = null; dragging = false;
+      if (ghostFrame) { scene.remove(ghostFrame); ghostFrame = null; }
       log('drag cancel');
     }
   });

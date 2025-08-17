@@ -39,8 +39,12 @@ function normalizeToUnit(src: THREE.Object3D, forceLongAxisZ = false) {
   ensureSRGBAndShadows(src);
   src.updateWorldMatrix(true, true);
   const { size, center } = bbox(src);
-  const long = Math.max(size.x, size.z) || 1;
-  const scale = THREE.MathUtils.clamp(RAIL_UNIT / long, 0.02, 5);
+  
+  // Para rectas, también consideramos el área total para que coincidan con las curvas
+  // Queremos que las rectas ocupen aproximadamente la misma área que las curvas
+  const area = size.x * size.z;
+  const targetArea = RAIL_UNIT * RAIL_UNIT; // 4.0
+  const scale = THREE.MathUtils.clamp(Math.sqrt(targetArea / area), 0.02, 5);
 
   const wrap = new THREE.Group();
   src.position.add(center.multiplyScalar(-scale));
@@ -48,6 +52,30 @@ function normalizeToUnit(src: THREE.Object3D, forceLongAxisZ = false) {
   wrap.add(src);
 
   if (forceLongAxisZ && size.x >= size.z) wrap.rotation.y = Math.PI / 2;
+  wrap.position.y = 0;
+
+  wrap.updateWorldMatrix(true, true);
+  const after = bbox(wrap).size;
+  const span = Math.max(after.x, after.z);
+  return { wrap, span, size: after };
+}
+
+// Función específica para curvas que considera el área total
+function normalizeCurveToUnit(src: THREE.Object3D) {
+  ensureSRGBAndShadows(src);
+  src.updateWorldMatrix(true, true);
+  const { size, center } = bbox(src);
+  
+  // Para curvas, consideramos el área total en lugar de solo la dimensión más larga
+  // Queremos que la curva ocupe aproximadamente la misma área que una recta de RAIL_UNIT × RAIL_UNIT
+  const area = size.x * size.z;
+  const targetArea = RAIL_UNIT * RAIL_UNIT;
+  const scale = THREE.MathUtils.clamp(Math.sqrt(targetArea / area), 0.02, 5);
+
+  const wrap = new THREE.Group();
+  src.position.add(center.multiplyScalar(-scale));
+  src.scale.setScalar(scale);
+  wrap.add(src);
   wrap.position.y = 0;
 
   wrap.updateWorldMatrix(true, true);
@@ -159,19 +187,12 @@ export async function tryGetRail(kind: RailKind): Promise<CacheEntry | null> {
 
     const norm = normalizeToUnit(raw.scene, true);
 
-    // Igualamos el largo EXACTO al RAIL_UNIT
-    {
-      const b = new THREE.Box3().setFromObject(norm.wrap);
-      const s = b.getSize(new THREE.Vector3());
-      const long = Math.max(s.x, s.z) || 1;
-      const fix = THREE.MathUtils.clamp(RAIL_UNIT / long, 0.02, 5);
-      norm.wrap.scale.multiplyScalar(fix);
-      norm.wrap.updateWorldMatrix(true, true);
-    }
+    // Ya no forzamos escalado adicional - normalizeToUnit ya hace el trabajo
+    // Las rectas ahora tendrán el tamaño correcto sin doble escalado
 
     const after = bbox(norm.wrap).size;
     const finalSpan = Math.max(after.x, after.z);
-    log(`[straight] span=${finalSpan.toFixed(4)} (L=${RAIL_UNIT}) size=[${after.x.toFixed(4)}, ${after.z.toFixed(4)}]`);
+    log(`[straight] span=${finalSpan.toFixed(4)} (L=${RAIL_UNIT}) size=[${after.x.toFixed(4)}, ${after.z.toFixed(4)}] area=${(after.x * after.z).toFixed(4)}`);
 
     const ports = fixedPorts('straight', RAIL_UNIT);
     (norm.wrap.userData ??= {}).ports = ports;
@@ -198,8 +219,8 @@ export async function tryGetRail(kind: RailKind): Promise<CacheEntry | null> {
       const raw = await loadRaw([name]);
       if (!raw) return null;
 
-      // 1) normaliza y centra
-      const norm = normalizeToUnit(raw.scene, false);
+      // 1) normaliza y centra usando la función específica para curvas
+      const norm = normalizeCurveToUnit(raw.scene);
 
       // 2) orienta la esquina como –X → +Z
       const xz = collectXZPoints(norm.wrap);
@@ -207,19 +228,12 @@ export async function tryGetRail(kind: RailKind): Promise<CacheEntry | null> {
       norm.wrap.rotation.y += idx * (Math.PI / 2);
       norm.wrap.updateWorldMatrix(true, true);
 
-      // 3) fuerza huella EXACTA a LxL
-      {
-        const bFull = new THREE.Box3().setFromObject(norm.wrap);
-        const sFull = bFull.getSize(new THREE.Vector3());
-        const spanFull = Math.max(sFull.x, sFull.z) || 1;
-        const fix = THREE.MathUtils.clamp(RAIL_UNIT / spanFull, 0.02, 5);
-        norm.wrap.scale.multiplyScalar(fix);
-        norm.wrap.updateWorldMatrix(true, true);
-      }
+      // 3) Ya no forzamos escalado adicional - normalizeCurveToUnit ya hace el trabajo
+      // Las curvas ahora tendrán el mismo tamaño visual que las rectas
 
       const after = bbox(norm.wrap).size;
       const spanFinal = Math.max(after.x, after.z);
-      log(`[curve90] span=${spanFinal.toFixed(4)} (L=${RAIL_UNIT}) size=[${after.x.toFixed(4)}, ${after.z.toFixed(4)}]`);
+      log(`[curve90] span=${spanFinal.toFixed(4)} (L=${RAIL_UNIT}) size=[${after.x.toFixed(4)}, ${after.z.toFixed(4)}] area=${(after.x * after.z).toFixed(4)}`);
 
       const ports = fixedPorts('curve90', RAIL_UNIT);
       (norm.wrap.userData ??= {}).ports = ports;
@@ -242,15 +256,7 @@ export async function tryGetRail(kind: RailKind): Promise<CacheEntry | null> {
     if (raw) {
       const norm = normalizeToUnit(raw.scene, true);
 
-      // Igualamos huella a L
-      {
-        const b = new THREE.Box3().setFromObject(norm.wrap);
-        const s = b.getSize(new THREE.Vector3());
-        const span = Math.max(s.x, s.z) || 1;
-        const fix = THREE.MathUtils.clamp(RAIL_UNIT / span, 0.02, 5);
-        norm.wrap.scale.multiplyScalar(fix);
-        norm.wrap.updateWorldMatrix(true, true);
-      }
+      // Ya no forzamos escalado adicional - normalizeToUnit ya hace el trabajo
 
       const ports = fixedPorts('tjunction', RAIL_UNIT);
       (norm.wrap.userData ??= {}).ports = ports;
@@ -283,15 +289,7 @@ export async function tryGetRail(kind: RailKind): Promise<CacheEntry | null> {
     if (raw) {
       const norm = normalizeToUnit(raw.scene, true);
 
-      // Igualamos huella a L
-      {
-        const b = new THREE.Box3().setFromObject(norm.wrap);
-        const s = b.getSize(new THREE.Vector3());
-        const span = Math.max(s.x, s.z) || 1;
-        const fix = THREE.MathUtils.clamp(RAIL_UNIT / span, 0.02, 5);
-        norm.wrap.scale.multiplyScalar(fix);
-        norm.wrap.updateWorldMatrix(true, true);
-      }
+      // Ya no forzamos escalado adicional - normalizeToUnit ya hace el trabajo
 
       const ports = fixedPorts('cross', RAIL_UNIT);
       (norm.wrap.userData ??= {}).ports = ports;
